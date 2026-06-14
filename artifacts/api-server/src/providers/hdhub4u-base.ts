@@ -126,9 +126,9 @@ export async function fetchText(
 export function cleanTitle(raw: string): string {
   return raw
     .replace(/\s+details\s*$/i, "")
-    // Strip quality, format, codec, language and release noise
+    // Strip quality, format, codec, language, release-group and platform noise
     .replace(
-      /\b(720p|1080p|2160p|480p|4k|ds4k|hd|fhd|uhd|webrip|web-dl|webdl|bluray|blu-ray|hdtc|hdcam|hevc|x265|x264|avc|10bit|hdr10?|sdr|dv|dolby|atmos|dts|truehd|opus|dd[0-9.]+|aac|mp3|flac|ac3|hindi|english|dual|multi|audio|tamil|telugu|punjabi|malayalam|kannada|bengali|marathi|season\s*\d+|s\d{2}|e\d{2}|full\s*(?:movie|series)|all\s*episodes?|remux|dubbed|hard\s*coded|extended|theatrical|directors?\s*cut|unrated|remastered|restored|imax|cam|ts|dvdrip|dvdscr|bdrip|brrip|hdts|predvd|digital|vision|hq|vo)\b/gi,
+      /\b(720p|1080p|2160p|480p|4k|ds4k|hd|fhd|uhd|webrip|web-dl|webdl|bluray|blu-ray|hdtc|hdcam|hevc|x265|x264|avc|10bit|hdr10?|sdr|dv|dolby|atmos|dts|truehd|opus|dd[0-9.]+|aac|mp3|flac|ac3|hindi|english|dual|multi|audio|tamil|telugu|punjabi|malayalam|kannada|bengali|marathi|season\s*\d+|s\d{2}|e\d{2}|full\s*(?:movie|series)|all\s*episodes?|remux|dubbed|hard\s*coded|extended|theatrical|directors?\s*cut|unrated|remastered|restored|imax|cam|ts|dvdrip|dvdscr|bdrip|brrip|hdrip|hdts|predvd|digital|vision|hq|vo|reloaded|esubs|org|v\d+|nf|amzn|amazon|netflix|hotstar|jio|zee5|sony|primevideo|prime\s*video|voot|true\s+org|ogs?|proper|retail|final|sync|corrected|chapter\s*cut|director|web\s*series|bonus\s*episodes?|series)\b/gi,
       "",
     )
     // Strip year patterns: "(2024)", "[2024]", "– 2024", "- 2024", bare "2024"

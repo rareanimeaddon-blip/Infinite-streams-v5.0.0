@@ -1,6 +1,9 @@
 function normalize(s: string): string {
   return s
     .toLowerCase()
+    // Collapse abbreviation dots before stripping punctuation:
+    // "K.G.F" → "kgf",  "U.S.A." → "usa"
+    .replace(/([a-z])\./g, "$1")
     .replace(/[^\w\s]/g, " ")
     .replace(/\b(the|a|an)\b/g, " ")
     .replace(/\s+/g, " ")
