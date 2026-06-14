@@ -143,7 +143,9 @@ export async function searchSite(query: string): Promise<ScrapeItem[]> {
 
     const activeDomain = await fetchActiveDomain();
 
-    for (const hit of res.data?.hits ?? []) {
+    const hits = res.data?.hits ?? [];
+    logger.info({ query, hits: hits.length }, "HDHub4U: Typesense response");
+    for (const hit of hits) {
       const doc = hit.document;
       if (!doc.permalink || !doc.post_title) continue;
 
@@ -152,13 +154,15 @@ export async function searchSite(query: string): Promise<ScrapeItem[]> {
         : `${activeDomain}${doc.permalink.startsWith("/") ? "" : "/"}${doc.permalink}`;
 
       const slug = fullUrl.replace(/^https?:\/\/[^/]+\//, "").replace(/\/$/, "");
+      const detectedType = detectTypeFromPostType(doc.post_type ?? "", doc.category ?? []);
+      logger.info({ rawTitle: doc.post_title, postType: doc.post_type, cats: (doc.category ?? []).join(","), detectedType }, "HDHub4U: Typesense hit");
       items.push({
         slug,
         title: cleanTitle(doc.post_title),
         year: extractYear(doc.post_title),
         poster: doc.post_thumbnail || undefined,
         url: fullUrl,
-        type: detectTypeFromPostType(doc.post_type ?? "", doc.category ?? []),
+        type: detectedType,
       });
     }
   } catch (err) {

@@ -533,7 +533,11 @@ async function getHDHub4UStreams(
 ): Promise<Record<string, unknown>[]> {
   try {
     const results = await hdhub4u.searchSite(title);
-    if (!results.length) return [];
+    if (!results.length) {
+      logger.info({ title, type }, "HDHub4U: no search results");
+      return [];
+    }
+    logger.info({ title, type, count: results.length, titles: results.map((r) => `${r.title}[${r.type}]`) }, "HDHub4U: search results");
     // Only match results of the correct content type — never serve a series page for a movie request or vice versa.
     // Catalog mismatch fallback: if type detection in the HDHub4U catalog is wrong (e.g. a movie
     // tagged under a web-series category), typed list will be empty — in that case fall back to
@@ -542,17 +546,22 @@ async function getHDHub4UStreams(
     const pool = typed.length > 0 ? typed : results;
     const minScore = typed.length > 0 ? 0.5 : 0.7;
     // Score all candidates with word-overlap gate + similarity ranking.
-    const scored = pool
-      .filter((r) => titleWordOverlap(title, r.title))
+    const withOverlap = pool.filter((r) => titleWordOverlap(title, r.title));
+    const scored = withOverlap
       .map((r) => ({ r, score: titleSimilarityScore(title, r.title) }))
       .sort((a, b) => b.score - a.score);
     const best = scored[0];
+    logger.info({
+      title, type, typed: typed.length, pool: pool.length, withOverlap: withOverlap.length,
+      best: best ? `${best.r.title}[${best.r.type}] score=${best.score.toFixed(2)}` : "none", minScore,
+    }, "HDHub4U: scoring");
     if (!best || best.score < minScore) return [];
     if (typed.length === 0) {
       logger.info({ title, type, bestType: best.r.type, score: best.score }, "HDHub4U: type-fallback match");
     }
     // Pass imdbId so extractStreams can verify the page's embedded IMDB ID matches
     const streams = await hdhub4u.extractStreams(best.r.url, undefined, undefined, imdbId);
+    logger.info({ title, url: best.r.url, streams: streams.length }, "HDHub4U: streams extracted");
     return streams.map((s) => hdhub4uStreamToStremio(s, "📡 HDHub4U"));
   } catch (err) {
     logger.error({ err, title }, "HDHub4U: crashed");
@@ -570,7 +579,11 @@ async function getHDHub4USeriesStreams(
     // Try season-specific query first; fall back to plain title if it returns nothing
     let results = await hdhub4u.searchSite(`${title} season ${season}`);
     if (!results.length) results = await hdhub4u.searchSite(title);
-    if (!results.length) return [];
+    if (!results.length) {
+      logger.info({ title, season, episode }, "HDHub4U series: no search results");
+      return [];
+    }
+    logger.info({ title, season, episode, count: results.length, titles: results.map((r) => `${r.title}[${r.type}]`) }, "HDHub4U series: search results");
     // Only use series-typed results — never serve a movie page for a series request.
     // Catalog mismatch fallback: if the HDHub4U catalog wrongly typed this as a movie,
     // fall back to all results but require a higher similarity score (0.7).
@@ -578,17 +591,22 @@ async function getHDHub4USeriesStreams(
     const pool = typed.length > 0 ? typed : results;
     const minScore = typed.length > 0 ? 0.5 : 0.7;
     // Pick the best-matching result (highest similarity, word-overlap gated)
-    const scored = pool
-      .filter((r) => titleWordOverlap(title, r.title))
+    const withOverlap = pool.filter((r) => titleWordOverlap(title, r.title));
+    const scored = withOverlap
       .map((r) => ({ r, score: titleSimilarityScore(title, r.title) }))
       .sort((a, b) => b.score - a.score);
     const best = scored[0];
+    logger.info({
+      title, season, episode, typed: typed.length, pool: pool.length, withOverlap: withOverlap.length,
+      best: best ? `${best.r.title}[${best.r.type}] score=${best.score.toFixed(2)}` : "none", minScore,
+    }, "HDHub4U series: scoring");
     if (!best || best.score < minScore) return [];
     if (typed.length === 0) {
       logger.info({ title, season, episode, bestType: best.r.type, score: best.score }, "HDHub4U: series type-fallback match");
     }
     // Pass imdbId so extractStreams can verify the page's embedded IMDB ID matches
     const streams = await hdhub4u.extractStreams(best.r.url, season, episode, imdbId);
+    logger.info({ title, season, episode, url: best.r.url, streams: streams.length }, "HDHub4U series: streams extracted");
     return streams.map((s) => hdhub4uStreamToStremio(s, "📡 HDHub4U"));
   } catch (err) {
     logger.error({ err, title, season, episode }, "HDHub4U: series crashed");
@@ -2338,6 +2356,31 @@ router.get("/debug/cache", (_req, res) => {
 router.get("/debug/resolve", (_req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.json(getResolveEvents());
+});
+
+// HDHub4U search debug: /api/debug/hdhub4u?title=Project+Hail+Mary&type=movie
+router.get("/debug/hdhub4u", async (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  const title = String(req.query["title"] ?? "");
+  const type  = String(req.query["type"]  ?? "movie") as "movie" | "series";
+  const season = Number(req.query["season"] ?? 1);
+  if (!title) { res.status(400).json({ error: "Missing title param" }); return; }
+  try {
+    const query = type === "series" ? `${title} season ${season}` : title;
+    const results = await hdhub4u.searchSite(query);
+    const typed = results.filter((r) => r.type === type);
+    const pool  = typed.length > 0 ? typed : results;
+    const scored = pool.map((r) => ({
+      title: r.title,
+      type: r.type,
+      url: r.url,
+      wordOverlap: titleWordOverlap(title, r.title),
+      score: parseFloat(titleSimilarityScore(title, r.title).toFixed(3)),
+    })).sort((a, b) => b.score - a.score);
+    res.json({ query, type, total: results.length, typed: typed.length, usedFallback: typed.length === 0, scored });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
 // Direct MovieBox search proxy for diagnostics:
