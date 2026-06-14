@@ -1,0 +1,37 @@
+# ── Version control ───────────────────────────────────────────────────────────
+.git
+.gitignore
+.gitattributes
+
+# ── Dependencies ──────────────────────────────────────────────────────────────
+# Reinstalled inside the builder stage; excluding them keeps the build context
+# small and avoids platform-mismatch issues with native addons.
+**/node_modules
+
+# ── Build artefacts ───────────────────────────────────────────────────────────
+# Rebuilt inside Docker; stale local artefacts must not leak into the image.
+**/dist
+**/.tsbuildinfo
+
+# ── Replit-specific files ─────────────────────────────────────────────────────
+.replit
+.upm
+.config
+.cache
+.local
+replit.nix
+.breakpoints
+.replit-artifact
+
+# ── Secrets / local env overrides ─────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Logs and OS noise ─────────────────────────────────────────────────────────
+**/*.log
+.DS_Store
+Thumbs.db
+
+# ── CI / test artefacts ───────────────────────────────────────────────────────
+coverage/

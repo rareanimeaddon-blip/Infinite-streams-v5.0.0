@@ -1,0 +1,29 @@
+services:
+  addon:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: infinite-streams:latest
+    container_name: infinite-streams
+    ports:
+      # host:container — change the left side to run on a different host port.
+      - "7000:7000"
+    environment:
+      NODE_ENV: production
+      PORT: "7000"
+      # URL prefix the addon is mounted under.
+      # Keep "/api" unless you put a reverse proxy in front that strips it.
+      BASE_PATH: /api
+      LOG_LEVEL: info
+      # Optional — uncomment and set a strong random value in production:
+      # SESSION_SECRET: "change-me-to-a-long-random-string"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:7000/api/healthz"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    # Uncomment to persist logs on the host:
+    # volumes:
+    #   - ./logs:/app/logs
