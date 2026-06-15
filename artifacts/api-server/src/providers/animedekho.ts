@@ -571,6 +571,17 @@ export async function getNeoCdnStreams(
       return [];
     }
 
+    // The myth player proxies raw trycloudflare.com URLs through a Cloudflare Worker.
+    // Direct trycloudflare.com URLs return HTTP errors when played in Stremio —
+    // we MUST wrap them through the same worker the player uses.
+    // Worker URL is dynamic (changes with player updates), so parse it fresh each time.
+    const workerUrl = mythHtml.match(/const\s+worker\s*=\s*["']([^"']+)["']/)?.[1] ?? "";
+    if (workerUrl) {
+      logger.info({ term, workerUrl }, "getNeoCdnStreams: found worker URL");
+    } else {
+      logger.warn({ term }, "getNeoCdnStreams: no worker URL found in myth player — sources may not play");
+    }
+
     const fetchUrl = `${BASE_URL}/aaa/myth/fetch.php?id=${fetchId}`;
     const fetchRaw = await fetchText(fetchUrl, {
       timeout: 12000,
@@ -586,8 +597,14 @@ export async function getNeoCdnStreams(
       return [];
     }
 
-    logger.info({ term, count: data.sources.length }, "getNeoCdnStreams: success");
-    return data.sources;
+    // Wrap every source URL through the worker proxy so Stremio can play it.
+    const sources: NeoCdnSource[] = data.sources.map((s) => ({
+      ...s,
+      url: workerUrl ? workerUrl + encodeURIComponent(s.url) : s.url,
+    }));
+
+    logger.info({ term, count: sources.length, workerUrl: !!workerUrl }, "getNeoCdnStreams: success");
+    return sources;
   } catch (err) {
     logger.warn({ term, mediaType, err }, "getNeoCdnStreams error");
     return [];
