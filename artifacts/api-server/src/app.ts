@@ -360,7 +360,7 @@ footer{border-top:1px solid var(--border);padding:48px 0;text-align:center}
       <span class="h1-line1">INFINITE</span>
       <span class="h1-line2">STREAMS</span>
     </h1>
-    <p class="hero-sub">10 providers. One addon. Zero compromise.<br/>Movies, series &amp; anime from every corner of the web.</p>
+    <p class="hero-sub">12 providers. One addon. Zero compromise.<br/>Movies, series &amp; anime from every corner of the web.</p>
     <div class="credit-tag">By <a href="https://t.me/Master_si" target="_blank">@Master_si</a></div>
 
     <div class="install-box">
@@ -481,7 +481,7 @@ footer{border-top:1px solid var(--border);padding:48px 0;text-align:center}
     <p class="footer-desc">12 providers, zero compromise. Movies, series &amp; anime from every corner of the web. Free forever.</p>
     <div class="footer-links">
       <a href="${defaultManifestUrl}" target="_blank">manifest.json</a>
-      <a href="${base}${BASE_PATH}/debug">Debug Console</a>
+
       <a href="https://t.me/Master_si" target="_blank">@Master_si</a>
     </div>
     <div class="footer-status">
