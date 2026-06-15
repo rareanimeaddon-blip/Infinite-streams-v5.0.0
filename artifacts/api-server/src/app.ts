@@ -481,7 +481,7 @@ footer{border-top:1px solid var(--border);padding:48px 0;text-align:center}
     <p class="footer-desc">12 providers, zero compromise. Movies, series &amp; anime from every corner of the web. Free forever.</p>
     <div class="footer-links">
       <a href="${defaultManifestUrl}" target="_blank">manifest.json</a>
-
+      <a href="${base}${BASE_PATH}/debug" class="footer-debug-btn">🛠 Debug Console</a>
       <a href="https://t.me/Master_si" target="_blank">@Master_si</a>
     </div>
     <div class="footer-status">

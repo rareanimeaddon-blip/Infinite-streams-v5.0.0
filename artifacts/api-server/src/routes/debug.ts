@@ -502,7 +502,7 @@ body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,
   <div class="hero">
     <div class="hero-left">
       <h1>Provider Health Check</h1>
-      <p>Probes all 11 providers with real test titles — a movie, a series, and an anime. Streams are attributed to each provider and shown below.</p>
+      <p>Probes all 12 providers with real test titles — a movie, a series, and an anime. Streams are attributed to each provider and shown below.</p>
     </div>
     <div class="hero-right">
       <button class="run-btn" id="runBtn" onclick="runCheck()">
@@ -569,7 +569,7 @@ async function runCheck() {
   btn.disabled = true;
   root.classList.add('running');
   fill.style.width = '5%';
-  lbl.textContent = 'Sending probes to all 11 providers…';
+  lbl.textContent = 'Sending probes to all 12 providers…';
 
   // reset cards
   document.querySelectorAll('.card').forEach(c => {
@@ -635,7 +635,7 @@ async function runCheck() {
     document.getElementById('stat-time').textContent  = (data.probeMs / 1000).toFixed(1) + 's';
     document.getElementById('ts').textContent = 'Last checked: ' + new Date(data.checkedAt).toLocaleString();
 
-    lbl.textContent = 'Done — ' + okCount + ' of 11 providers returned streams.';
+    lbl.textContent = 'Done — ' + okCount + ' of 12 providers returned streams.';
     setTimeout(() => root.classList.remove('running'), 600);
 
   } catch (e) {
