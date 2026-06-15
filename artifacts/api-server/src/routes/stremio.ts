@@ -922,42 +922,45 @@ function neoCdnSourceToStream(src: NeoCdnSource): ADStream {
 async function collectAnimeDekhoEpisodeStreams(
   episodeUrl: string,
 ): Promise<ADStream[]> {
-  const [vidIframes, extraIframes, bodyInfo] = await Promise.all([
+  const [{ iframes: vidIframes, hasNeocdn: pageHasNeocdn }, extraIframes, bodyInfo] = await Promise.all([
     getVidStreamIframes(episodeUrl),
     getEpisodePageIframes(episodeUrl),
     getBodyTermId(episodeUrl),
   ]);
 
-  // Fetch trdekho iframes first — we need to inspect them to decide whether
-  // NeoCDN is appropriate for this episode (Season 9 fingerprint check).
   const trdekhoIframes = bodyInfo
     ? await getTrdekhoIframes(bodyInfo.term, bodyInfo.mediaType)
     : [];
 
-  // NeoCDN (myth player) returns sources for ANY episode term, including seasons
-  // that don't actually have NeoCDN on the website (wrong/unrelated content).
-  // Season 9 episodes are distinguishable by trdekho=2 pointing to gdmirrorbot.nl.
-  // Only enable NeoCDN when we see that fingerprint.
-  const hasGDMirrorbot = trdekhoIframes.some((u) => u.includes("gdmirrorbot.nl"));
-  const neoCdnSources = (bodyInfo && hasGDMirrorbot)
+  // Use the server button list (pageHasNeocdn) as the primary NeoCDN signal —
+  // it's accurate for every episode regardless of which other servers are present.
+  // The old gdmirrorbot fingerprint was too narrow: episodes with VidStream +
+  // HydraX + NeoCDN + SRuby (no MirrorBot) were never getting NeoCDN streams.
+  const neoCdnSources = (bodyInfo && pageHasNeocdn)
     ? await getNeoCdnStreams(bodyInfo.term, bodyInfo.mediaType, episodeUrl)
     : [];
 
-  const allIframes = [...new Set([...vidIframes, ...extraIframes, ...trdekhoIframes])];
+  // Filter HydraX (abyssplayer) from trdekho results — already in SKIP_URLS so
+  // resolveExtractor would skip them, but filtering here avoids wasted round-trips.
+  const filteredTrdekho = trdekhoIframes.filter(
+    (u) => !u.includes("abyssplayer.com") && !u.includes("abysscdn.com"),
+  );
+
+  const allIframes = [...new Set([...vidIframes, ...extraIframes, ...filteredTrdekho])];
   logger.info(
-    { count: allIframes.length, neoCdn: neoCdnSources.length, hasGDMirrorbot, episodeUrl },
+    { count: allIframes.length, neoCdn: neoCdnSources.length, pageHasNeocdn, episodeUrl },
     "AnimeDekho: resolving iframes",
   );
   const results = await Promise.allSettled(
     allIframes.map((u) => resolveExtractor(u, episodeUrl))
   );
-  // MirrorBot / GDMirrorbot streams come first; NeoCDN appended as fallback
   const streams: ADStream[] = [];
   for (const r of results) {
     if (r.status === "fulfilled") {
       for (const s of r.value) streams.push(adEnsurePlayable(s));
     }
   }
+  // NeoCDN direct MP4s come last — reliable fallback when CDN-backed servers fail
   for (const src of neoCdnSources) streams.push(neoCdnSourceToStream(src));
   return streams;
 }
@@ -966,14 +969,20 @@ async function collectAnimeDekhoPageStreams(pageUrl: string): Promise<ADStream[]
   const bodyInfo = await getBodyTermId(pageUrl);
   if (!bodyInfo) return [];
 
-  // Same fingerprint check: fetch trdekho iframes first, then decide on NeoCDN.
-  const iframes = await getTrdekhoIframes(bodyInfo.term, bodyInfo.mediaType);
-  const hasGDMirrorbot = iframes.some((u) => u.includes("gdmirrorbot.nl"));
-  const neoCdnSources = hasGDMirrorbot
-    ? await getNeoCdnStreams(bodyInfo.term, bodyInfo.mediaType, pageUrl)
-    : [];
+  // Fetch trdekho iframes and NeoCDN sources in parallel.
+  // Always try NeoCDN for page streams — no fingerprint check needed since
+  // getNeoCdnStreams returns [] when the myth player has no sources.
+  const [iframes, neoCdnSources] = await Promise.all([
+    getTrdekhoIframes(bodyInfo.term, bodyInfo.mediaType),
+    getNeoCdnStreams(bodyInfo.term, bodyInfo.mediaType, pageUrl),
+  ]);
 
-  const results = await Promise.allSettled(iframes.map((u) => resolveExtractor(u, pageUrl)));
+  // Filter HydraX (abyssplayer) from trdekho results
+  const filteredIframes = iframes.filter(
+    (u) => !u.includes("abyssplayer.com") && !u.includes("abysscdn.com"),
+  );
+
+  const results = await Promise.allSettled(filteredIframes.map((u) => resolveExtractor(u, pageUrl)));
   const streams: ADStream[] = [];
   for (const r of results) {
     if (r.status === "fulfilled") {

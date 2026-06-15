@@ -450,20 +450,39 @@ function decodeDataSrcUrls(html: string): string[] {
   return urls;
 }
 
-export async function getVidStreamIframes(episodeUrl: string): Promise<string[]> {
+export async function getVidStreamIframes(episodeUrl: string): Promise<{ iframes: string[]; hasNeocdn: boolean }> {
+  const empty = { iframes: [] as string[], hasNeocdn: false };
   try {
     const html = await fetchText(episodeUrl, { timeout: 7000, headers: { Cookie: "toronites_server=vidstream" } });
     const $ = cheerio.load(html);
     const providerUrls: string[] = [];
     const seen = new Set<string>();
+    let hasNeocdn = false;
+
     $("iframe.serversel[src], iframe[src]").each((_, el) => {
       const src = ($(el).attr("src") || "").trim();
       if (!src) return;
       const normalized = src.startsWith("//") ? "https:" + src : src;
       if (normalized.includes("animedekho.app/embed/") && !seen.has(normalized)) { seen.add(normalized); providerUrls.push(normalized); }
     });
-    for (const u of decodeDataSrcUrls(html)) { if (!seen.has(u)) { seen.add(u); providerUrls.push(u); } }
-    if (providerUrls.length === 0) return [];
+
+    for (const u of decodeDataSrcUrls(html)) {
+      if (seen.has(u)) continue;
+      seen.add(u);
+      // Detect NeoCDN server directly from the page's server button list —
+      // don't add to providerUrls (getNeoCdnStreams handles it separately).
+      if (u.includes("/aaa/myth/play.php")) { hasNeocdn = true; continue; }
+      // Skip HydraX (abyssplayer) — user explicitly excluded; also redundant
+      // since SKIP_URLS covers it, but filtering early saves the round-trip.
+      if (u.includes("abyssplayer.com") || u.includes("abysscdn.com")) continue;
+      // Skip trdekho= URLs — getTrdekhoIframes handles them independently;
+      // adding them here would cause redundant fetches and duplicate results.
+      if (u.includes("?trdekho=")) continue;
+      providerUrls.push(u);
+    }
+
+    if (providerUrls.length === 0) return { iframes: [], hasNeocdn };
+
     const innerIframes: string[] = [];
     const innerSeen = new Set<string>();
     await Promise.allSettled(providerUrls.map(async (providerUrl) => {
@@ -475,6 +494,8 @@ export async function getVidStreamIframes(episodeUrl: string): Promise<string[]>
           const src = ($page(el).attr("src") || "").trim();
           if (!src.startsWith("http")) return;
           if (src.includes("youtube.com") || src.includes("youtu.be") || src.includes("vimeo.com") || src.includes("animedekho.app/aaa/")) return;
+          // Never surface HydraX (abyssplayer) even if it appears as an inner embed
+          if (src.includes("abyssplayer.com") || src.includes("abysscdn.com")) return;
           if (!innerSeen.has(src)) { innerSeen.add(src); innerIframes.push(src); }
         });
         if (!innerSeen.size) {
@@ -485,8 +506,8 @@ export async function getVidStreamIframes(episodeUrl: string): Promise<string[]>
         }
       } catch (err) { logger.debug({ providerUrl, err }, "VidStream provider fetch error"); }
     }));
-    return innerIframes;
-  } catch (err) { logger.error({ episodeUrl, err }, "getVidStreamIframes error"); return []; }
+    return { iframes: innerIframes, hasNeocdn };
+  } catch (err) { logger.error({ episodeUrl, err }, "getVidStreamIframes error"); return empty; }
 }
 
 export async function getTrdekhoIframes(term: string, mediaType: number): Promise<string[]> {
