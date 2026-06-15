@@ -187,7 +187,7 @@ router.get("/manifest.json", (req, res) => {
       })();
   res.json({
     ...manifest,
-    logo: `${base}${BASE_PATH}/logo.svg`,
+    logo: `${base}${BASE_PATH}/logo.png`,
     configurationURL: `${base}${BASE_PATH}/configure`,
   });
 });

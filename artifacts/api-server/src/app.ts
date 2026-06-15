@@ -1,11 +1,20 @@
 import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
 import router from "./routes/index.js";
 import { logger } from "./lib/logger.js";
 import { manifest, ALL_ENABLED_MASK } from "./manifest.js";
 import { PROVIDER_LIST } from "./lib/provider-config.js";
 import { BASE_PATH } from "./lib/base-path.js";
+
+const _dirname = dirname(fileURLToPath(import.meta.url));
+const logoPngBuffer = (() => {
+  try { return readFileSync(resolve(_dirname, "logo.png")); }
+  catch { return null; }
+})();
 
 const app: Express = express();
 
@@ -212,10 +221,11 @@ function serveLandingPage(req: express.Request, res: express.Response) {
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#080810;--bg2:#0d0d1a;--bg3:#111120;
-  --border:rgba(255,255,255,0.06);--border2:rgba(255,255,255,0.12);
+  --bg:#04040f;--bg2:#08081a;--bg3:#0d0d22;
+  --border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.14);
   --accent:#7c5cfc;--accent2:#a78bfa;--accent3:#c4b5fd;
-  --text:#f1f0ff;--text2:#9492b8;--text3:#4a4870;
+  --blue:#38bdf8;--blue2:#7dd3fc;--blue3:#93c5fd;
+  --text:#f0efff;--text2:#9492b8;--text3:#4a4870;
   --success:#22d3a0;--r:14px;
 }
 html{scroll-behavior:smooth;-webkit-font-smoothing:antialiased}
@@ -235,24 +245,30 @@ nav{position:sticky;top:0;z-index:200;padding:0 20px;height:60px;display:flex;al
 .nav-install{display:inline-flex;align-items:center;gap:7px;padding:7px 16px;background:var(--accent);color:#fff;border-radius:8px;font-size:12px;font-weight:700;transition:opacity .15s,transform .15s}
 .nav-install:hover{opacity:.85;transform:translateY(-1px)}
 .hero{padding:100px 0 72px;text-align:center;position:relative;overflow:hidden}
-.hero-glow{position:absolute;top:-120px;left:50%;transform:translateX(-50%);width:700px;height:700px;background:radial-gradient(ellipse at center,rgba(124,92,252,0.18) 0%,transparent 70%);pointer-events:none}
+.hero-glow{position:absolute;top:-120px;left:50%;transform:translateX(-50%);width:900px;height:900px;background:radial-gradient(ellipse at 38% 50%,rgba(124,92,252,0.22) 0%,transparent 55%),radial-gradient(ellipse at 62% 50%,rgba(56,189,248,0.18) 0%,transparent 55%);pointer-events:none}
 .hero-grid{position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,0.015) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.015) 1px,transparent 1px);background-size:40px 40px;mask-image:radial-gradient(ellipse 80% 60% at 50% 0%,black 0%,transparent 80%);pointer-events:none}
 .hero-pill{display:inline-flex;align-items:center;gap:8px;padding:5px 14px 5px 8px;border-radius:999px;background:rgba(124,92,252,0.08);border:1px solid rgba(124,92,252,0.2);font-size:12px;color:var(--accent2);font-weight:600;margin-bottom:28px}
 .hero-pill-dot{width:6px;height:6px;border-radius:50%;background:var(--success);box-shadow:0 0 0 3px rgba(34,211,160,0.2);animation:pulse 2s infinite}
 @keyframes pulse{0%,100%{box-shadow:0 0 0 3px rgba(34,211,160,0.2)}50%{box-shadow:0 0 0 6px rgba(34,211,160,0.05)}}
-.brand-logo{width:88px;height:88px;margin:0 auto 24px;border-radius:24px;background:linear-gradient(135deg,#7c5cfc 0%,#a78bfa 50%,#c4b5fd 100%);display:flex;align-items:center;justify-content:center;font-size:40px;box-shadow:0 20px 60px rgba(124,92,252,0.45),0 0 0 1px rgba(255,255,255,0.1) inset;position:relative}
-.brand-logo::after{content:'';position:absolute;inset:-2px;border-radius:26px;background:linear-gradient(135deg,rgba(124,92,252,0.4),rgba(167,139,250,0.2),transparent);z-index:-1}
-h1{font-size:clamp(44px,7.5vw,82px);font-weight:900;letter-spacing:-0.05em;line-height:1;margin-bottom:20px}
-.h1-line1{display:block;color:var(--text)}
-.h1-line2{display:block;background:linear-gradient(135deg,var(--accent) 0%,var(--accent2) 50%,var(--accent3) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.brand-logo{width:200px;height:200px;margin:0 auto 24px;position:relative;display:block}
+.brand-logo img{width:100%;height:100%;object-fit:contain;border-radius:20px;filter:drop-shadow(0 0 50px rgba(124,92,252,0.75)) drop-shadow(0 0 100px rgba(56,189,248,0.45))}
+h1{font-size:clamp(48px,8vw,90px);font-weight:900;letter-spacing:-0.04em;line-height:1;margin-bottom:20px}
+.h1-line1{display:block;color:#e8e6ff;text-shadow:0 0 80px rgba(200,190,255,0.3)}
+.h1-line2{display:block;background:linear-gradient(90deg,var(--blue) 0%,var(--blue2) 50%,#60a5fa 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
 .hero-sub{font-size:clamp(15px,2vw,17px);color:var(--text2);max-width:500px;margin:0 auto 36px;line-height:1.75;font-weight:400}
 .credit-tag{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text3);padding:4px 12px;border-radius:999px;border:1px solid var(--border);margin-bottom:36px}
 .credit-tag a{color:var(--accent2);font-weight:700}
 .install-box{max-width:620px;margin:0 auto;background:linear-gradient(135deg,rgba(124,92,252,0.08),rgba(167,139,250,0.04));border:1px solid rgba(124,92,252,0.25);border-radius:20px;padding:28px;position:relative;overflow:hidden}
 .install-box::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at top,rgba(124,92,252,0.08),transparent);pointer-events:none}
 .install-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--text3);margin-bottom:16px}
-.install-btn-big{display:flex;align-items:center;justify-content:center;gap:12px;width:100%;padding:16px 24px;background:linear-gradient(135deg,var(--accent) 0%,#6d28d9 100%);color:#fff;border:none;border-radius:12px;font-size:17px;font-weight:800;cursor:pointer;font-family:inherit;letter-spacing:-0.02em;box-shadow:0 8px 32px rgba(124,92,252,0.45),inset 0 1px 0 rgba(255,255,255,0.15);transition:transform .15s,box-shadow .15s;text-decoration:none;margin-bottom:14px}
-.install-btn-big:hover{transform:translateY(-2px);box-shadow:0 12px 40px rgba(124,92,252,0.55),inset 0 1px 0 rgba(255,255,255,0.15)}
+.install-btn-big{display:flex;align-items:center;justify-content:center;gap:12px;width:100%;padding:16px 24px;background:linear-gradient(135deg,var(--accent) 0%,#5b21b6 40%,#0ea5e9 100%);color:#fff;border:none;border-radius:12px;font-size:17px;font-weight:800;cursor:pointer;font-family:inherit;letter-spacing:-0.02em;box-shadow:0 8px 32px rgba(124,92,252,0.45),0 4px 16px rgba(56,189,248,0.25),inset 0 1px 0 rgba(255,255,255,0.15);transition:transform .15s,box-shadow .15s;text-decoration:none;margin-bottom:14px}
+.install-btn-big:hover{transform:translateY(-2px);box-shadow:0 12px 40px rgba(124,92,252,0.55),0 6px 24px rgba(56,189,248,0.3),inset 0 1px 0 rgba(255,255,255,0.15)}
+.install-btn-big-sub{font-size:10px;font-weight:500;opacity:0.7;letter-spacing:0}
+.feature-badges{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin:28px 0 0}
+.feature-badge{display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 16px;border-radius:14px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.03);backdrop-filter:blur(8px);min-width:80px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--text2);transition:border-color .2s,background .2s}
+.feature-badge:hover{border-color:rgba(124,92,252,0.35);background:rgba(124,92,252,0.06)}
+.fb-icon{font-size:22px;line-height:1}
+.footer-debug-btn{background:rgba(124,92,252,0.08);border:1px solid rgba(124,92,252,0.2)!important;border-radius:6px;padding:2px 8px;color:var(--accent2)!important}
 .install-divider{display:flex;align-items:center;gap:12px;margin-bottom:14px;color:var(--text3);font-size:12px}
 .install-divider::before,.install-divider::after{content:'';flex:1;height:1px;background:var(--border)}
 .url-row{display:flex;gap:8px}
@@ -335,7 +351,7 @@ footer{border-top:1px solid var(--border);padding:48px 0;text-align:center}
 
 <nav>
   <div class="nav-logo">
-    <div class="nav-logo-mark">♾</div>
+    <img src="${BASE_PATH}/logo.png" alt="∞" style="width:28px;height:28px;border-radius:6px;object-fit:cover"/>
     <span class="nav-name">INFINITE STREAMS</span>
   </div>
   <div class="nav-right">
@@ -355,7 +371,14 @@ footer{border-top:1px solid var(--border);padding:48px 0;text-align:center}
       <div class="hero-pill-dot"></div>
       ${manifest.catalogs.length} catalogs · 12 providers · Live
     </div>
-    <div class="brand-logo">♾</div>
+    <div class="brand-logo"><img src="${BASE_PATH}/logo.png" alt="INFINITE STREAMS"/></div>
+    <div class="feature-badges">
+      <div class="feature-badge"><span class="fb-icon">⚡</span>Ultra Fast<br>Streaming</div>
+      <div class="feature-badge"><span class="fb-icon">🎬</span>4K<br>Quality</div>
+      <div class="feature-badge"><span class="fb-icon">♾</span>Infinite<br>Sources</div>
+      <div class="feature-badge"><span class="fb-icon">🛡️</span>Secure &amp;<br>Reliable</div>
+      <div class="feature-badge"><span class="fb-icon">🍿</span>All Your<br>Favorites</div>
+    </div>
     <h1>
       <span class="h1-line1">INFINITE</span>
       <span class="h1-line2">STREAMS</span>
@@ -382,7 +405,7 @@ footer{border-top:1px solid var(--border);padding:48px 0;text-align:center}
     </div>
 
     <div class="stats-row">
-      <div class="stat"><div class="stat-num">10</div><div class="stat-lbl">Providers</div></div>
+      <div class="stat"><div class="stat-num">12</div><div class="stat-lbl">Providers</div></div>
       <div class="stat"><div class="stat-num">${manifest.catalogs.length}</div><div class="stat-lbl">Catalogs</div></div>
       <div class="stat"><div class="stat-num">4K</div><div class="stat-lbl">Max Quality</div></div>
       <div class="stat"><div class="stat-num">∞</div><div class="stat-lbl">Content</div></div>
@@ -393,7 +416,7 @@ footer{border-top:1px solid var(--border);padding:48px 0;text-align:center}
 <section class="section">
   <div class="container">
     <div class="section-label">Providers</div>
-    <h2 class="section-title">10 sources, one install</h2>
+    <h2 class="section-title">12 sources, one install</h2>
     <p class="section-sub">Every provider is queried in parallel and deduplicated — you always get the best available stream.</p>
     <div class="providers-grid">${providerCards}</div>
   </div>
@@ -407,7 +430,7 @@ footer{border-top:1px solid var(--border);padding:48px 0;text-align:center}
     <div class="configure-box">
       <div class="configure-header">
         <span class="configure-title">Provider Selection</span>
-        <span class="sel-count" id="sel-count">10 / 10 selected</span>
+        <span class="sel-count" id="sel-count">12 / 12 selected</span>
       </div>
       <div class="cb-list">${providerCheckboxes}</div>
       <div class="custom-install-box">
@@ -475,7 +498,7 @@ footer{border-top:1px solid var(--border);padding:48px 0;text-align:center}
 <footer>
   <div class="footer-inner">
     <div class="footer-logo">
-      <div class="footer-mark">♾</div>
+      <img src="${BASE_PATH}/logo.png" alt="∞" style="width:32px;height:32px;border-radius:8px;object-fit:cover"/>
       <span class="footer-name">INFINITE STREAMS</span>
     </div>
     <p class="footer-desc">12 providers, zero compromise. Movies, series &amp; anime from every corner of the web. Free forever.</p>
@@ -493,7 +516,7 @@ footer{border-top:1px solid var(--border);padding:48px 0;text-align:center}
 
 <div class="sticky-bar" id="sticky-bar">
   <div class="sticky-bar-left">
-    <div class="sticky-logo">♾</div>
+    <img src="${BASE_PATH}/logo.png" alt="∞" style="width:28px;height:28px;border-radius:6px;object-fit:cover;flex-shrink:0"/>
     <div>
       <div class="sticky-bar-title">INFINITE STREAMS</div>
       <div class="sticky-bar-sub">12 providers, one addon</div>
@@ -596,6 +619,13 @@ const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <text x="256" y="345" text-anchor="middle" font-family="Arial,Helvetica,sans-serif"
         font-size="290" font-weight="bold" fill="url(#sym)">&#x221E;</text>
 </svg>`;
+
+app.get(`${BASE_PATH}/logo.png`, (_req, res) => {
+  if (!logoPngBuffer) { res.status(404).send("not found"); return; }
+  res.setHeader("Content-Type", "image/png");
+  res.setHeader("Cache-Control", "public, max-age=604800, immutable");
+  res.send(logoPngBuffer);
+});
 
 app.get(`${BASE_PATH}/logo.svg`, (_req, res) => {
   res.setHeader("Content-Type", "image/svg+xml");
