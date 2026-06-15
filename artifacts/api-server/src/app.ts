@@ -43,7 +43,7 @@ function getPublicBase(req: express.Request): string {
 function serveLandingPage(req: express.Request, res: express.Response) {
   const base = getPublicBase(req);
   const defaultManifestUrl = `${base}${BASE_PATH}/manifest.json`;
-  const stremioUrl = `stremio://addon-manifest?manifest=${encodeURIComponent(defaultManifestUrl)}`;
+  const stremioUrl = defaultManifestUrl.replace(/^https?:\/\//, "stremio://");
 
   const providers: Array<{
     key: string;
@@ -521,7 +521,7 @@ function buildManifestUrl() {
 
 function buildStremioUrl() {
   const mUrl = buildManifestUrl();
-  return "stremio://addon-manifest?manifest=" + encodeURIComponent(mUrl);
+  return mUrl.replace(/^https?:\/\//, "stremio://");
 }
 
 function updateUrls() {
