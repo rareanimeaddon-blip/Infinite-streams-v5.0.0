@@ -439,26 +439,55 @@ export async function getBodyTermId(url: string): Promise<{ term: string; mediaT
 const EMBED_ERROR_MARKERS = ["Server Error (Link)", "server error", "Report to Admin", "File Not Found", "file not found", "Video Not Found", "This video has been removed"];
 function isEmbedErrorPage(html: string): boolean { return EMBED_ERROR_MARKERS.some((m) => html.includes(m)); }
 
-function decodeDataSrcUrls(html: string): string[] {
-  const urls: string[] = [];
-  for (const m of html.matchAll(/data-src="([A-Za-z0-9+/=]+)"/g)) {
+function decodeServerButtons(html: string): Array<{ url: string; name: string }> {
+  const results: Array<{ url: string; name: string }> = [];
+  const $doc = cheerio.load(html);
+  // Primary selector: server tab buttons with data-src and data-option
+  $doc("a[data-src][data-option]").each((_, el) => {
+    const b64 = $doc(el).attr("data-src") || "";
+    const name = $doc(el).find("span.num").text().trim() || $doc(el).text().trim() || "";
+    if (!b64) return;
     try {
-      const decoded = Buffer.from(m[1], "base64").toString("utf8");
-      if (decoded.startsWith("https://animedekho.app/") || decoded.startsWith("http://animedekho.app/")) urls.push(decoded);
+      const decoded = Buffer.from(b64, "base64").toString("utf8");
+      if (decoded.startsWith("https://animedekho.app/") || decoded.startsWith("http://animedekho.app/")) {
+        results.push({ url: decoded, name });
+      }
     } catch {}
-  }
-  return urls;
+  });
+  return results;
 }
 
-export async function getVidStreamIframes(episodeUrl: string): Promise<{ iframes: string[]; hasNeocdn: boolean }> {
-  const empty = { iframes: [] as string[], hasNeocdn: false };
+/**
+ * Parses the episode/movie page HTML to determine which servers are listed.
+ * Returns the NeoCDN flag and the exact trdekho= indices present on the page
+ * (excluding HydraX/abyssplayer). Use this to avoid blind 0-24 trdekho scanning
+ * which causes wrong CDN content from non-existent slots.
+ */
+export function parsePageServers(html: string): { hasNeocdn: boolean; trdekhoIndices: number[] } {
+  const buttons = decodeServerButtons(html);
+  let hasNeocdn = false;
+  const trdekhoIndices: number[] = [];
+  for (const { url, name } of buttons) {
+    if (url.includes("/aaa/myth/play.php")) { hasNeocdn = true; continue; }
+    const lname = name.toLowerCase();
+    if (url.includes("abyssplayer.com") || url.includes("abysscdn.com") || lname.includes("hydrax") || lname.includes("abyss")) continue;
+    if (url.includes("?trdekho=")) {
+      const m = url.match(/[?&]trdekho=(\d+)/);
+      if (m) trdekhoIndices.push(parseInt(m[1]!, 10));
+    }
+  }
+  return { hasNeocdn, trdekhoIndices };
+}
+
+export async function getVidStreamIframes(episodeUrl: string): Promise<{ iframes: string[]; hasNeocdn: boolean; trdekhoIndices: number[] }> {
+  const empty = { iframes: [] as string[], hasNeocdn: false, trdekhoIndices: [] as number[] };
   try {
     const html = await fetchText(episodeUrl, { timeout: 7000, headers: { Cookie: "toronites_server=vidstream" } });
     const $ = cheerio.load(html);
     const providerUrls: string[] = [];
     const seen = new Set<string>();
-    let hasNeocdn = false;
 
+    // Collect any static server iframe already rendered on the page (active server embed)
     $("iframe.serversel[src], iframe[src]").each((_, el) => {
       const src = ($(el).attr("src") || "").trim();
       if (!src) return;
@@ -466,22 +495,27 @@ export async function getVidStreamIframes(episodeUrl: string): Promise<{ iframes
       if (normalized.includes("animedekho.app/embed/") && !seen.has(normalized)) { seen.add(normalized); providerUrls.push(normalized); }
     });
 
-    for (const u of decodeDataSrcUrls(html)) {
-      if (seen.has(u)) continue;
-      seen.add(u);
-      // Detect NeoCDN server directly from the page's server button list —
-      // don't add to providerUrls (getNeoCdnStreams handles it separately).
-      if (u.includes("/aaa/myth/play.php")) { hasNeocdn = true; continue; }
-      // Skip HydraX (abyssplayer) — user explicitly excluded; also redundant
-      // since SKIP_URLS covers it, but filtering early saves the round-trip.
-      if (u.includes("abyssplayer.com") || u.includes("abysscdn.com")) continue;
-      // Skip trdekho= URLs — getTrdekhoIframes handles them independently;
-      // adding them here would cause redundant fetches and duplicate results.
-      if (u.includes("?trdekho=")) continue;
-      providerUrls.push(u);
-    }
+    // Parse server buttons — the ground truth of what players exist on this page.
+    // We use this to build the exact trdekho= index list and detect NeoCDN,
+    // instead of blindly scanning trdekho=0..24 (which causes wrong CDN content
+    // from slots that don't exist for this episode).
+    const { hasNeocdn, trdekhoIndices } = parsePageServers(html);
+    const serverButtons = decodeServerButtons(html);
+    logger.info(
+      { episodeUrl, servers: serverButtons.map((s) => s.name), trdekhoIndices, hasNeocdn },
+      "AnimeDekho: page server buttons",
+    );
 
-    if (providerUrls.length === 0) return { iframes: [], hasNeocdn };
+    // Add non-trdekho, non-NeoCDN embed URLs from the server button list
+    for (const { url, name } of serverButtons) {
+      if (seen.has(url)) continue;
+      if (url.includes("/aaa/myth/play.php")) continue; // NeoCDN: handled by getNeoCdnStreams
+      const lname = name.toLowerCase();
+      if (url.includes("abyssplayer.com") || url.includes("abysscdn.com") || lname.includes("hydrax") || lname.includes("abyss")) continue;
+      if (url.includes("?trdekho=")) continue; // trdekho slots: handled by getTrdekhoIframes
+      seen.add(url);
+      providerUrls.push(url);
+    }
 
     const innerIframes: string[] = [];
     const innerSeen = new Set<string>();
@@ -494,7 +528,6 @@ export async function getVidStreamIframes(episodeUrl: string): Promise<{ iframes
           const src = ($page(el).attr("src") || "").trim();
           if (!src.startsWith("http")) return;
           if (src.includes("youtube.com") || src.includes("youtu.be") || src.includes("vimeo.com") || src.includes("animedekho.app/aaa/")) return;
-          // Never surface HydraX (abyssplayer) even if it appears as an inner embed
           if (src.includes("abyssplayer.com") || src.includes("abysscdn.com")) return;
           if (!innerSeen.has(src)) { innerSeen.add(src); innerIframes.push(src); }
         });
@@ -506,13 +539,19 @@ export async function getVidStreamIframes(episodeUrl: string): Promise<{ iframes
         }
       } catch (err) { logger.debug({ providerUrl, err }, "VidStream provider fetch error"); }
     }));
-    return { iframes: innerIframes, hasNeocdn };
+    return { iframes: innerIframes, hasNeocdn, trdekhoIndices };
   } catch (err) { logger.error({ episodeUrl, err }, "getVidStreamIframes error"); return empty; }
 }
 
-export async function getTrdekhoIframes(term: string, mediaType: number): Promise<string[]> {
+/**
+ * Fetches iframes for the given trdekho slot indices.
+ * Pass only the indices explicitly found on the episode/movie page via parsePageServers()
+ * to avoid fetching non-existent slots that return wrong CDN content.
+ */
+export async function getTrdekhoIframes(term: string, mediaType: number, indices: number[]): Promise<string[]> {
+  if (indices.length === 0) return [];
   const results = await Promise.allSettled(
-    Array.from({ length: 25 }, (_, i) => {
+    indices.map((i) => {
       const url = `${BASE_URL}/?trdekho=${i}&trid=${term}&trtype=${mediaType}`;
       return fetchDoc(url, { timeout: 8000 }).then(($) => {
         const src = $("iframe[src]").first().attr("src")?.trim() || $("iframe[data-src]").first().attr("data-src")?.trim();
@@ -523,9 +562,9 @@ export async function getTrdekhoIframes(term: string, mediaType: number): Promis
   );
   const seen = new Set<string>();
   const iframes: string[] = [];
-  results.forEach((r, i) => {
+  results.forEach((r, pos) => {
     if (r.status === "fulfilled" && r.value) {
-      if (!seen.has(r.value)) { seen.add(r.value); iframes.push(r.value); logger.info({ i, src: r.value }, "trdekho iframe found"); }
+      if (!seen.has(r.value)) { seen.add(r.value); iframes.push(r.value); logger.info({ i: indices[pos], src: r.value }, "trdekho iframe found"); }
     }
   });
   return iframes;

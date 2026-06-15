@@ -42,6 +42,7 @@ import {
   getTrdekhoIframes,
   getEpisodePageIframes,
   getNeoCdnStreams,
+  parsePageServers,
   type NeoCdnSource,
   decodeId as animeDekhoDecodeId,
 } from "../providers/animedekho.js";
@@ -922,33 +923,33 @@ function neoCdnSourceToStream(src: NeoCdnSource): ADStream {
 async function collectAnimeDekhoEpisodeStreams(
   episodeUrl: string,
 ): Promise<ADStream[]> {
-  const [{ iframes: vidIframes, hasNeocdn: pageHasNeocdn }, extraIframes, bodyInfo] = await Promise.all([
+  // getVidStreamIframes now parses the server button list to return exact trdekho
+  // indices present on the page — no more blind 0-24 scanning.
+  const [{ iframes: vidIframes, hasNeocdn: pageHasNeocdn, trdekhoIndices }, extraIframes, bodyInfo] = await Promise.all([
     getVidStreamIframes(episodeUrl),
     getEpisodePageIframes(episodeUrl),
     getBodyTermId(episodeUrl),
   ]);
 
-  const trdekhoIframes = bodyInfo
-    ? await getTrdekhoIframes(bodyInfo.term, bodyInfo.mediaType)
+  // Only fetch the trdekho slots actually listed on the episode page.
+  // Fetching non-existent slots (old 0-24 approach) returned wrong CDN content
+  // (e.g. FileMoon for a completely different episode).
+  const trdekhoIframes = (bodyInfo && trdekhoIndices.length > 0)
+    ? await getTrdekhoIframes(bodyInfo.term, bodyInfo.mediaType, trdekhoIndices)
     : [];
 
-  // Use the server button list (pageHasNeocdn) as the primary NeoCDN signal —
-  // it's accurate for every episode regardless of which other servers are present.
-  // The old gdmirrorbot fingerprint was too narrow: episodes with VidStream +
-  // HydraX + NeoCDN + SRuby (no MirrorBot) were never getting NeoCDN streams.
   const neoCdnSources = (bodyInfo && pageHasNeocdn)
     ? await getNeoCdnStreams(bodyInfo.term, bodyInfo.mediaType, episodeUrl)
     : [];
 
-  // Filter HydraX (abyssplayer) from trdekho results — already in SKIP_URLS so
-  // resolveExtractor would skip them, but filtering here avoids wasted round-trips.
+  // Filter HydraX (abyssplayer) from trdekho results
   const filteredTrdekho = trdekhoIframes.filter(
     (u) => !u.includes("abyssplayer.com") && !u.includes("abysscdn.com"),
   );
 
   const allIframes = [...new Set([...vidIframes, ...extraIframes, ...filteredTrdekho])];
   logger.info(
-    { count: allIframes.length, neoCdn: neoCdnSources.length, pageHasNeocdn, episodeUrl },
+    { count: allIframes.length, neoCdn: neoCdnSources.length, pageHasNeocdn, trdekhoIndices, episodeUrl },
     "AnimeDekho: resolving iframes",
   );
   const results = await Promise.allSettled(
@@ -960,7 +961,6 @@ async function collectAnimeDekhoEpisodeStreams(
       for (const s of r.value) streams.push(adEnsurePlayable(s));
     }
   }
-  // NeoCDN direct MP4s come last — reliable fallback when CDN-backed servers fail
   for (const src of neoCdnSources) streams.push(neoCdnSourceToStream(src));
   return streams;
 }
@@ -969,15 +969,26 @@ async function collectAnimeDekhoPageStreams(pageUrl: string): Promise<ADStream[]
   const bodyInfo = await getBodyTermId(pageUrl);
   if (!bodyInfo) return [];
 
-  // Fetch trdekho iframes and NeoCDN sources in parallel.
-  // Always try NeoCDN for page streams — no fingerprint check needed since
-  // getNeoCdnStreams returns [] when the myth player has no sources.
+  // getBodyTermId returns the full page HTML in bodyInfo.text.
+  // Parse server buttons from it to get exact trdekho indices and NeoCDN flag —
+  // same page-aware approach used for episode pages.
+  const { hasNeocdn, trdekhoIndices } = bodyInfo.text
+    ? parsePageServers(bodyInfo.text)
+    : { hasNeocdn: false, trdekhoIndices: [] as number[] };
+
+  logger.info({ pageUrl, hasNeocdn, trdekhoIndices }, "AnimeDekho page servers");
+
   const [iframes, neoCdnSources] = await Promise.all([
-    getTrdekhoIframes(bodyInfo.term, bodyInfo.mediaType),
-    getNeoCdnStreams(bodyInfo.term, bodyInfo.mediaType, pageUrl),
+    trdekhoIndices.length > 0
+      ? getTrdekhoIframes(bodyInfo.term, bodyInfo.mediaType, trdekhoIndices)
+      : Promise.resolve<string[]>([]),
+    // Try NeoCDN if explicitly listed on the page, or if page HTML was unavailable
+    // (WP REST API fallback path where text is empty — we can't know for sure).
+    (hasNeocdn || !bodyInfo.text)
+      ? getNeoCdnStreams(bodyInfo.term, bodyInfo.mediaType, pageUrl)
+      : Promise.resolve<NeoCdnSource[]>([]),
   ]);
 
-  // Filter HydraX (abyssplayer) from trdekho results
   const filteredIframes = iframes.filter(
     (u) => !u.includes("abyssplayer.com") && !u.includes("abysscdn.com"),
   );

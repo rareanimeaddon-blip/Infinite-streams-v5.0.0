@@ -13,13 +13,14 @@ export type GDMirrorbotResolver = (url: string, referer: string) => Promise<Stre
 
 interface EmbedHelperResponse { siteUrls?: Record<string, string>; siteFriendlyNames?: Record<string, string>; mresult?: Record<string, string> | string; }
 
-// Priority tiers: tier-0 keys are tried first; if they yield streams we skip tier-1 and tier-2.
+// Priority tiers: tier-0 keys are tried first; if they yield streams we skip tier-1.
 // Keys are LOWERCASE — that is what embedhelper.php actually returns.
 // tier-0: StreamHG / RPMShare / StreamP2p — 95 %+ of episodes on these
 // tier-1: everything else (Voe, DoodStream, OneUpload, Krakenfiles, …)
-// tier-2: FileMoon — most likely to fail; only used as last resort
+// FileMoon (flmn/flmn2/flmn3) is excluded entirely — it produces wrong CDN content
+// (stale files often mapped to different episodes) and pollutes stream results.
 const TIER0_KEYS = new Set(["smwh", "rpmshre", "strmp2", "strmph", "smwh2"]);
-const TIER2_KEYS = new Set(["flmn", "flmn2", "flmn3"]);
+const FILEMOON_KEYS = new Set(["flmn", "flmn2", "flmn3"]);
 
 // Some GDMirrorbot CDNs use hash-based embed URLs: https://host/#HASH
 // Convert these to proper embed paths: https://host/e/HASH
@@ -244,16 +245,18 @@ export async function extractGDMirrorbot(url: string, referer?: string, resolver
     interface Entry { key: string; base: string; path: string; name: string; }
     const allEntries: Entry[] = Object.keys(mresult)
       .map((key) => ({ key, base: resp.siteUrls![key]!, path: mresult[key]!, name: resp.siteFriendlyNames?.[key] || key }))
-      .filter((e) => e.base && e.path);
+      .filter((e) => e.base && e.path)
+      // Exclude FileMoon entirely — stale FileMoon CDN files are often mapped to wrong
+      // episodes and produce misleading streams that fail to play or show wrong content.
+      .filter((e) => !FILEMOON_KEYS.has(e.key));
 
     logger.info({ url, entries: allEntries.map(e => e.key) }, "GDMirrorbot sub-stream entries");
 
     // ── Tier 0: StreamWish / StreamHG / RPMShare (SMWH, RPMSHRE, STRMP2) ──────
     // These host 95 %+ of working episodes. Try them first; if any succeed
-    // we skip lower tiers entirely to avoid returning broken FileMoon links.
+    // we skip tier-1 entirely.
     const tier0 = allEntries.filter(e => TIER0_KEYS.has(e.key));
-    const tier2 = allEntries.filter(e => TIER2_KEYS.has(e.key));
-    const tier1 = allEntries.filter(e => !TIER0_KEYS.has(e.key) && !TIER2_KEYS.has(e.key));
+    const tier1 = allEntries.filter(e => !TIER0_KEYS.has(e.key));
 
     if (tier0.length > 0) {
       logger.info({ url, tier0Keys: tier0.map(e => e.key) }, "GDMirrorbot: trying tier-0 (SMWH/RPMSHRE) first");
@@ -262,13 +265,13 @@ export async function extractGDMirrorbot(url: string, referer?: string, resolver
       );
       for (const r of t0Results) { if (r.status === "fulfilled" && r.value) streams.push(...r.value); }
       if (streams.length > 0) {
-        logger.info({ url, count: streams.length }, "GDMirrorbot: tier-0 succeeded — skipping lower tiers");
+        logger.info({ url, count: streams.length }, "GDMirrorbot: tier-0 succeeded — skipping tier-1");
         return streams;
       }
-      // If all tier-0 entries reported CDN dead (null), skip tier-1 & tier-2 immediately —
-      // GDMirrorbot CDN files expire together so other CDNs will also be dead.
+      // If all tier-0 entries reported CDN dead (null), skip tier-1 immediately —
+      // GDMirrorbot CDN files expire together so tier-1 CDNs will also be dead.
       if (allDead(t0Results)) {
-        logger.info({ url }, "GDMirrorbot: tier-0 all CDN dead — skipping tier-1/tier-2");
+        logger.info({ url }, "GDMirrorbot: tier-0 all CDN dead — skipping tier-1");
         return streams;
       }
       logger.info({ url }, "GDMirrorbot: tier-0 yielded no streams, trying tier-1");
@@ -281,22 +284,10 @@ export async function extractGDMirrorbot(url: string, referer?: string, resolver
       );
       for (const r of t1Results) { if (r.status === "fulfilled" && r.value) streams.push(...r.value); }
       if (streams.length > 0) {
-        logger.info({ url, count: streams.length }, "GDMirrorbot: tier-1 succeeded — skipping FileMoon");
-        return streams;
+        logger.info({ url, count: streams.length }, "GDMirrorbot: tier-1 succeeded");
+      } else {
+        logger.info({ url }, "GDMirrorbot: tier-1 yielded no streams");
       }
-      if (allDead(t1Results)) {
-        logger.info({ url }, "GDMirrorbot: tier-1 all CDN dead — skipping FileMoon");
-        return streams;
-      }
-      logger.info({ url }, "GDMirrorbot: tier-1 yielded no streams, trying FileMoon as last resort");
-    }
-
-    // ── Tier 2: FileMoon (FLMN) — last resort ─────────────────────────────────
-    if (tier2.length > 0) {
-      const t2Results = await Promise.allSettled(
-        tier2.map(e => resolveEntry(e.base, e.path, e.name, url, resolver))
-      );
-      for (const r of t2Results) { if (r.status === "fulfilled" && r.value) streams.push(...r.value); }
     }
 
   } catch (err) { logger.error({ url, err }, "GDMirrorbot extract error"); }
