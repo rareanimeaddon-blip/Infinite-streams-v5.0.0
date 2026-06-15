@@ -73,6 +73,9 @@ const SKIP_URLS = [
   "animedekho.app/aaa/ad/beta/",
   "cloudy.upns.one",
   "strmup.to",
+  // mirror.xerver.xyz is a JS-rendered VidSrc player — static scraping never finds streams,
+  // so fetching it just wastes timeout budget with no return.
+  "mirror.xerver.xyz",
 ];
 
 // Markers that indicate a down/v/ (MirrorBot relay) page is not serving content

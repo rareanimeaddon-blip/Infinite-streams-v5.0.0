@@ -582,7 +582,12 @@ export async function getTrdekhoIframes(term: string, mediaType: number, indices
 }
 
 export interface NeoCdnSource {
+  /** Worker-wrapped URL (primary). Uses AnimeDekho's Cloudflare Worker to proxy the raw trycloudflare URL. */
   url: string;
+  /** Raw trycloudflare.com URL before worker wrapping. Provided as a fallback for when the
+   *  Cloudflare Worker throws Error 1101. Residential IPs (user devices) can usually access
+   *  trycloudflare URLs directly even if data-center IPs (our server) get 403. */
+  rawUrl?: string;
   size: string;
   type: string;
 }
