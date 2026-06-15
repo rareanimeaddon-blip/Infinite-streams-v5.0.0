@@ -459,16 +459,27 @@ function decodeServerButtons(html: string): Array<{ url: string; name: string }>
 
 /**
  * Parses the episode/movie page HTML to determine which servers are listed.
- * Returns the NeoCDN flag and the exact trdekho= indices present on the page
+ * Returns the NeoCDN flag, the exact myth player URL (with the correct trdekho slot
+ * for this page — varies per show), and the trdekho= indices present on the page
  * (excluding HydraX/abyssplayer). Use this to avoid blind 0-24 trdekho scanning
  * which causes wrong CDN content from non-existent slots.
+ *
+ * IMPORTANT: neoCdnMythUrl must be passed directly to getNeoCdnStreams — it contains
+ * the HydraX trdekho slot index for this specific show (e.g. trdekho=0 for Liar Game,
+ * trdekho=1 for Shinchan). Using a hardcoded trdekho=1 breaks NeoCDN for any show
+ * where HydraX is mapped to a different slot.
  */
-export function parsePageServers(html: string): { hasNeocdn: boolean; trdekhoIndices: number[] } {
+export function parsePageServers(html: string): { hasNeocdn: boolean; neoCdnMythUrl: string | null; trdekhoIndices: number[] } {
   const buttons = decodeServerButtons(html);
   let hasNeocdn = false;
+  let neoCdnMythUrl: string | null = null;
   const trdekhoIndices: number[] = [];
   for (const { url, name } of buttons) {
-    if (url.includes("/aaa/myth/play.php")) { hasNeocdn = true; continue; }
+    if (url.includes("/aaa/myth/play.php")) {
+      hasNeocdn = true;
+      neoCdnMythUrl = url.startsWith("http") ? url : `${BASE_URL}${url}`;
+      continue;
+    }
     const lname = name.toLowerCase();
     if (url.includes("abyssplayer.com") || url.includes("abysscdn.com") || lname.includes("hydrax") || lname.includes("abyss")) continue;
     if (url.includes("?trdekho=")) {
@@ -476,11 +487,11 @@ export function parsePageServers(html: string): { hasNeocdn: boolean; trdekhoInd
       if (m) trdekhoIndices.push(parseInt(m[1]!, 10));
     }
   }
-  return { hasNeocdn, trdekhoIndices };
+  return { hasNeocdn, neoCdnMythUrl, trdekhoIndices };
 }
 
-export async function getVidStreamIframes(episodeUrl: string): Promise<{ iframes: string[]; hasNeocdn: boolean; trdekhoIndices: number[] }> {
-  const empty = { iframes: [] as string[], hasNeocdn: false, trdekhoIndices: [] as number[] };
+export async function getVidStreamIframes(episodeUrl: string): Promise<{ iframes: string[]; hasNeocdn: boolean; neoCdnMythUrl: string | null; trdekhoIndices: number[] }> {
+  const empty = { iframes: [] as string[], hasNeocdn: false, neoCdnMythUrl: null as string | null, trdekhoIndices: [] as number[] };
   try {
     const html = await fetchText(episodeUrl, { timeout: 7000, headers: { Cookie: "toronites_server=vidstream" } });
     const $ = cheerio.load(html);
@@ -499,10 +510,10 @@ export async function getVidStreamIframes(episodeUrl: string): Promise<{ iframes
     // We use this to build the exact trdekho= index list and detect NeoCDN,
     // instead of blindly scanning trdekho=0..24 (which causes wrong CDN content
     // from slots that don't exist for this episode).
-    const { hasNeocdn, trdekhoIndices } = parsePageServers(html);
+    const { hasNeocdn, neoCdnMythUrl, trdekhoIndices } = parsePageServers(html);
     const serverButtons = decodeServerButtons(html);
     logger.info(
-      { episodeUrl, servers: serverButtons.map((s) => s.name), trdekhoIndices, hasNeocdn },
+      { episodeUrl, servers: serverButtons.map((s) => s.name), trdekhoIndices, hasNeocdn, neoCdnMythUrl },
       "AnimeDekho: page server buttons",
     );
 
@@ -539,7 +550,7 @@ export async function getVidStreamIframes(episodeUrl: string): Promise<{ iframes
         }
       } catch (err) { logger.debug({ providerUrl, err }, "VidStream provider fetch error"); }
     }));
-    return { iframes: innerIframes, hasNeocdn, trdekhoIndices };
+    return { iframes: innerIframes, hasNeocdn, neoCdnMythUrl, trdekhoIndices };
   } catch (err) { logger.error({ episodeUrl, err }, "getVidStreamIframes error"); return empty; }
 }
 
@@ -585,16 +596,17 @@ export interface NeoCdnSource {
  *  3. Extract the /aaa/myth/fetch.php?id=... from the inline script.
  *  4. Fetch that endpoint — returns JSON { sources: [{url, size, type}] }.
  *  5. Sources are direct Cloudflare Tunnel MP4 URLs (360p, 720p).
+ *
+ * Fetches NeoCDN (myth player) streams using the full myth URL parsed directly
+ * from the page's NeoCDN server button. The myth URL encodes the HydraX trdekho
+ * slot for this specific show — do NOT reconstruct it with a hardcoded trdekho=1,
+ * as the HydraX slot varies per show (e.g. trdekho=0 for Liar Game).
  */
 export async function getNeoCdnStreams(
-  term: string,
-  mediaType: number,
+  mythUrl: string,
   referer: string,
 ): Promise<NeoCdnSource[]> {
   try {
-    const trdekho1Url = `${BASE_URL}/?trdekho=1&trid=${term}&trtype=${mediaType}`;
-    const mythUrl = `${BASE_URL}/aaa/myth/play.php?id=${encodeURIComponent(trdekho1Url)}`;
-
     const mythHtml = await fetchText(mythUrl, {
       timeout: 12000,
       headers: {
@@ -606,7 +618,7 @@ export async function getNeoCdnStreams(
 
     const fetchId = mythHtml.match(/myth\/fetch\.php\?id=([^"'\s\\]+)/)?.[1];
     if (!fetchId) {
-      logger.warn({ term, mediaType }, "getNeoCdnStreams: no fetch ID in myth player");
+      logger.warn({ mythUrl }, "getNeoCdnStreams: no fetch ID in myth player");
       return [];
     }
 
@@ -616,13 +628,13 @@ export async function getNeoCdnStreams(
     // Worker URL is dynamic (changes with player updates), so parse it fresh each time.
     const workerUrl = mythHtml.match(/const\s+worker\s*=\s*["']([^"']+)["']/)?.[1] ?? "";
     if (workerUrl) {
-      logger.info({ term, workerUrl }, "getNeoCdnStreams: found worker URL");
+      logger.info({ mythUrl, workerUrl }, "getNeoCdnStreams: found worker URL");
     } else {
-      logger.warn({ term }, "getNeoCdnStreams: no worker URL found in myth player — sources may not play");
+      logger.warn({ mythUrl }, "getNeoCdnStreams: no worker URL found in myth player — sources may not play");
     }
 
-    const fetchUrl = `${BASE_URL}/aaa/myth/fetch.php?id=${fetchId}`;
-    const fetchRaw = await fetchText(fetchUrl, {
+    const fetchEndpoint = `${BASE_URL}/aaa/myth/fetch.php?id=${fetchId}`;
+    const fetchRaw = await fetchText(fetchEndpoint, {
       timeout: 12000,
       headers: {
         Referer: mythUrl,
@@ -632,7 +644,7 @@ export async function getNeoCdnStreams(
 
     const data = JSON.parse(fetchRaw) as { sources?: NeoCdnSource[] };
     if (!data.sources?.length) {
-      logger.warn({ term, fetchId }, "getNeoCdnStreams: empty sources from fetch.php");
+      logger.warn({ mythUrl, fetchId }, "getNeoCdnStreams: empty sources from fetch.php");
       return [];
     }
 
@@ -642,10 +654,10 @@ export async function getNeoCdnStreams(
       url: workerUrl ? workerUrl + encodeURIComponent(s.url) : s.url,
     }));
 
-    logger.info({ term, count: sources.length, workerUrl: !!workerUrl }, "getNeoCdnStreams: success");
+    logger.info({ mythUrl, count: sources.length, workerUrl: !!workerUrl }, "getNeoCdnStreams: success");
     return sources;
   } catch (err) {
-    logger.warn({ term, mediaType, err }, "getNeoCdnStreams error");
+    logger.warn({ mythUrl, err }, "getNeoCdnStreams error");
     return [];
   }
 }

@@ -925,7 +925,7 @@ async function collectAnimeDekhoEpisodeStreams(
 ): Promise<ADStream[]> {
   // getVidStreamIframes now parses the server button list to return exact trdekho
   // indices present on the page — no more blind 0-24 scanning.
-  const [{ iframes: vidIframes, hasNeocdn: pageHasNeocdn, trdekhoIndices }, extraIframes, bodyInfo] = await Promise.all([
+  const [{ iframes: vidIframes, hasNeocdn: pageHasNeocdn, neoCdnMythUrl, trdekhoIndices }, extraIframes, bodyInfo] = await Promise.all([
     getVidStreamIframes(episodeUrl),
     getEpisodePageIframes(episodeUrl),
     getBodyTermId(episodeUrl),
@@ -938,8 +938,10 @@ async function collectAnimeDekhoEpisodeStreams(
     ? await getTrdekhoIframes(bodyInfo.term, bodyInfo.mediaType, trdekhoIndices)
     : [];
 
-  const neoCdnSources = (bodyInfo && pageHasNeocdn)
-    ? await getNeoCdnStreams(bodyInfo.term, bodyInfo.mediaType, episodeUrl)
+  // Pass the myth URL directly from the page — it encodes the correct HydraX trdekho
+  // slot for this show. Different shows map HydraX to different trdekho indices.
+  const neoCdnSources = (pageHasNeocdn && neoCdnMythUrl)
+    ? await getNeoCdnStreams(neoCdnMythUrl, episodeUrl)
     : [];
 
   // Filter HydraX (abyssplayer) from trdekho results
@@ -972,20 +974,20 @@ async function collectAnimeDekhoPageStreams(pageUrl: string): Promise<ADStream[]
   // getBodyTermId returns the full page HTML in bodyInfo.text.
   // Parse server buttons from it to get exact trdekho indices and NeoCDN flag —
   // same page-aware approach used for episode pages.
-  const { hasNeocdn, trdekhoIndices } = bodyInfo.text
+  const { hasNeocdn, neoCdnMythUrl, trdekhoIndices } = bodyInfo.text
     ? parsePageServers(bodyInfo.text)
-    : { hasNeocdn: false, trdekhoIndices: [] as number[] };
+    : { hasNeocdn: false, neoCdnMythUrl: null as string | null, trdekhoIndices: [] as number[] };
 
-  logger.info({ pageUrl, hasNeocdn, trdekhoIndices }, "AnimeDekho page servers");
+  logger.info({ pageUrl, hasNeocdn, neoCdnMythUrl, trdekhoIndices }, "AnimeDekho page servers");
 
   const [iframes, neoCdnSources] = await Promise.all([
     trdekhoIndices.length > 0
       ? getTrdekhoIframes(bodyInfo.term, bodyInfo.mediaType, trdekhoIndices)
       : Promise.resolve<string[]>([]),
-    // Try NeoCDN if explicitly listed on the page, or if page HTML was unavailable
-    // (WP REST API fallback path where text is empty — we can't know for sure).
-    (hasNeocdn || !bodyInfo.text)
-      ? getNeoCdnStreams(bodyInfo.term, bodyInfo.mediaType, pageUrl)
+    // Pass myth URL directly from the page (encodes the correct HydraX trdekho slot).
+    // Fall back to attempting if page HTML was unavailable and we cannot determine servers.
+    (hasNeocdn && neoCdnMythUrl)
+      ? getNeoCdnStreams(neoCdnMythUrl, pageUrl)
       : Promise.resolve<NeoCdnSource[]>([]),
   ]);
 
