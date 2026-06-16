@@ -322,7 +322,11 @@ export async function getMeowTvStreams(
         season,
         episode,
       });
-      behaviorHints = { notWebReady: true };
+      // Proxied HLS streams are served from our own domain with
+      // Access-Control-Allow-Origin: * — they ARE web-ready.
+      // Do NOT set notWebReady: true here; that would prevent LG TV
+      // (which uses a web-based Stremio player) from playing the stream.
+      behaviorHints = {};
       logger.info({ label, url: data.url.slice(0, 80) }, "MeowTV: HLS stream (proxied)");
     }
 
