@@ -1868,8 +1868,12 @@ function premiumFormat(
     const isAvcTitle  = /\b(H\.264|x264|AVC)\b/i.test(combined);
     const codecSuffix = isHevcTitle ? " HEVC" : isAvcTitle ? " H.264" : "";
 
-    // Extract audio languages — includes BCP-47 normalized names from mbStreamToStremio
-    const audioMatch = combined.match(
+    // Extract audio languages.
+    // Scan rawTitle + rawDesc only — NOT rawName — because the badge name is
+    // provider identity (e.g. "MeowTV — Hindi v2") not metadata, and scanning
+    // it causes the greedy regex to incorrectly capture "Hindi v2 Hindi v2".
+    const audioSearch = rawTitle + " " + rawDesc;
+    const audioMatch = audioSearch.match(
       /\b(Hindi|English|Tamil|Telugu|Japanese|Bengali|Korean|Portuguese|Spanish|French|German|Italian|Arabic|Russian|Chinese|Turkish|Dutch|Polish|Indonesian|Malay|Thai|Vietnamese|Swedish|Norwegian|Danish|Finnish|Hungarian|Czech|Romanian|Ukrainian|Original(?:\s+Audio)?|Multi(?:[-\s]?Audio)?|Dual[-\s]?Audio)[^|·\n,]*/i,
     );
     const audio = audioMatch ? audioMatch[0].trim() : "";

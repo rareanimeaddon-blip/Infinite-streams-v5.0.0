@@ -181,6 +181,43 @@ export async function fetchMeowServerStream(
   }
 }
 
+// ─── Metadata helpers ─────────────────────────────────────────────────────────
+
+/**
+ * Normalize the raw `language` field from the MeowTV API so it matches the
+ * audio-language patterns that premiumFormat's regex recognises.
+ * e.g. "multi" → "Multi Audio", "hindi" → "Hindi", "" → "Multi Audio"
+ */
+function normalizeMeowLanguage(raw: string | undefined): string {
+  const l = (raw ?? "").toLowerCase().trim();
+  if (!l || l === "multi" || l === "multi audio" || l === "multiple") return "Multi Audio";
+  if (l === "dual" || l === "dual audio") return "Dual Audio";
+  if (l === "hindi") return "Hindi";
+  if (l === "english") return "English";
+  if (l === "tamil") return "Tamil";
+  if (l === "telugu") return "Telugu";
+  if (l === "japanese") return "Japanese";
+  if (l === "korean") return "Korean";
+  if (l === "original" || l === "original audio") return "Original Audio";
+  // Capitalise first letter for anything else
+  return raw!.charAt(0).toUpperCase() + raw!.slice(1);
+}
+
+/**
+ * Try to extract a quality tag from the stream URL path.
+ * Many MeowTV CDN URLs embed the resolution in the path, e.g.
+ *   /hls/1080p/index.m3u8  or  /720/playlist.m3u8
+ */
+function qualityFromUrl(url: string): string {
+  const u = url.toLowerCase().split("?")[0] ?? "";
+  if (/\b(2160|4k)\b/.test(u)) return "2160p";
+  if (/\b1080\b/.test(u)) return "1080p";
+  if (/\b720\b/.test(u)) return "720p";
+  if (/\b480\b/.test(u)) return "480p";
+  if (/\b360\b/.test(u)) return "360p";
+  return "";
+}
+
 // ─── URL helpers ──────────────────────────────────────────────────────────────
 
 function isDirectVideo(url: string): boolean {
@@ -285,9 +322,17 @@ export async function getMeowTvStreams(
       logger.info({ label, url: data.url.slice(0, 80) }, "MeowTV: HLS stream (proxied)");
     }
 
+    const audio   = normalizeMeowLanguage(data.language);
+    const quality = qualityFromUrl(data.url);
+
+    // `title` = quality hint only (label already in `name` badge; audio must
+    // NOT appear here or the audioSearch in premiumFormat doubles it).
+    // `description` is scanned by premiumFormat for audio/quality extraction
+    // then deleted from the final stream object.
     streams.push({
       name: `MeowTV — ${label}`,
-      title: `${label} · ${data.language || "Multi"}`,
+      title: quality || "",
+      description: [audio, quality].filter(Boolean).join(" | "),
       url: streamUrl,
       behaviorHints,
     });
