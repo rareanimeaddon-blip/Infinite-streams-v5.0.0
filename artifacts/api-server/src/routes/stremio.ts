@@ -913,8 +913,8 @@ function proxyHindMoviezStreams(
 function neoCdnSourceToStream(src: NeoCdnSource): ADStream[] {
   const streams: ADStream[] = [
     {
-      name: "AnimeDekho",
-      title: `🎬 NeoCDN ${src.type} [${src.size}]`,
+      name: "AnimeDekho | NeoCDN",
+      title: `${src.type} [${src.size}]`,
       url: src.url,
       type: "url",
       behaviorHints: { notWebReady: false },
@@ -926,8 +926,8 @@ function neoCdnSourceToStream(src: NeoCdnSource): ADStream[] {
   // reach it directly even when our data-center IP is blocked with HTTP 403.
   if (src.rawUrl && src.rawUrl !== src.url) {
     streams.push({
-      name: "AnimeDekho",
-      title: `🎬 NeoCDN ${src.type} Direct [${src.size}]`,
+      name: "AnimeDekho | NeoCDN",
+      title: `${src.type} Direct [${src.size}]`,
       url: src.rawUrl,
       type: "url",
       behaviorHints: { notWebReady: false },
