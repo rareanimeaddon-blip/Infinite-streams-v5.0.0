@@ -425,7 +425,7 @@ footer{border-top:1px solid var(--border);padding:48px 0;text-align:center}
 <section class="section">
   <div class="container">
     <div class="section-label">Providers</div>
-    <h2 class="section-title">12 sources, one install</h2>
+    <h2 class="section-title">13 sources, one install</h2>
     <p class="section-sub">Every provider is queried in parallel and deduplicated — you always get the best available stream.</p>
     <div class="providers-grid">${providerCards}</div>
   </div>
@@ -439,7 +439,7 @@ footer{border-top:1px solid var(--border);padding:48px 0;text-align:center}
     <div class="configure-box">
       <div class="configure-header">
         <span class="configure-title">Provider Selection</span>
-        <span class="sel-count" id="sel-count">12 / 12 selected</span>
+        <span class="sel-count" id="sel-count">13 / 13 selected</span>
       </div>
       <div class="cb-list">${providerCheckboxes}</div>
       <div class="custom-install-box">
@@ -518,7 +518,7 @@ footer{border-top:1px solid var(--border);padding:48px 0;text-align:center}
     </div>
     <div class="footer-status">
       <div class="footer-status-dot"></div>
-      By @Master_si · v${manifest.version} · 12 Providers
+      By @Master_si · v${manifest.version} · 13 Providers
     </div>
   </div>
 </footer>
@@ -541,7 +541,7 @@ footer{border-top:1px solid var(--border);padding:48px 0;text-align:center}
 const BASE = ${JSON.stringify(base)};
 const BP = ${JSON.stringify(BASE_PATH)};
 const PROVIDER_KEYS = ${JSON.stringify(PROVIDER_LIST)};
-let mask = Array(12).fill(1);
+let mask = Array(13).fill(1);
 
 function getMask() { return mask.join(""); }
 
@@ -563,7 +563,7 @@ function updateUrls() {
   document.getElementById("custom-manifest-input").value = mUrl;
   document.getElementById("custom-install-btn").href = sUrl;
   const sc = document.getElementById("sel-count");
-  sc.textContent = count + " / 12 selected";
+  sc.textContent = count + " / 13 selected";
   sc.style.color = count > 0 ? "" : "#f87171";
 }
 
