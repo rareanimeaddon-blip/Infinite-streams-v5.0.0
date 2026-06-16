@@ -190,17 +190,21 @@ export async function fetchMeowServerStream(
  */
 function normalizeMeowLanguage(raw: string | undefined): string {
   const l = (raw ?? "").toLowerCase().trim();
-  if (!l || l === "multi" || l === "multi audio" || l === "multiple") return "Multi Audio";
+  // Empty, "auto" (server follows source language), "multi", "multiple" → Multi Audio
+  if (!l || l === "auto" || l === "multi" || l === "multi audio" || l === "multiple" || l === "mul") return "Multi Audio";
   if (l === "dual" || l === "dual audio") return "Dual Audio";
-  if (l === "hindi") return "Hindi";
-  if (l === "english") return "English";
-  if (l === "tamil") return "Tamil";
-  if (l === "telugu") return "Telugu";
-  if (l === "japanese") return "Japanese";
-  if (l === "korean") return "Korean";
+  if (l === "hindi" || l === "hi") return "Hindi";
+  if (l === "english" || l === "en") return "English";
+  if (l === "tamil" || l === "ta") return "Tamil";
+  if (l === "telugu" || l === "te") return "Telugu";
+  if (l === "japanese" || l === "ja") return "Japanese";
+  if (l === "korean" || l === "ko") return "Korean";
+  if (l === "bengali" || l === "bn") return "Bengali";
+  if (l === "arabic" || l === "ar") return "Arabic";
+  if (l === "chinese" || l === "zh") return "Chinese";
   if (l === "original" || l === "original audio") return "Original Audio";
-  // Capitalise first letter for anything else
-  return raw!.charAt(0).toUpperCase() + raw!.slice(1);
+  // Capitalise first letter for any other value passed through
+  return (raw ?? "").charAt(0).toUpperCase() + (raw ?? "").slice(1);
 }
 
 /**
