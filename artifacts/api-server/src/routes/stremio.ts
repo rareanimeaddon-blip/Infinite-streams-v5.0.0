@@ -910,14 +910,30 @@ function proxyHindMoviezStreams(
   });
 }
 
-function neoCdnSourceToStream(src: NeoCdnSource): ADStream {
-  return {
-    name: "AnimeDekho",
-    title: `🎬 NeoCDN ${src.type} [${src.size}]`,
-    url: src.url,
-    type: "url",
-    behaviorHints: { notWebReady: false },
-  };
+function neoCdnSourceToStream(src: NeoCdnSource): ADStream[] {
+  const streams: ADStream[] = [
+    {
+      name: "AnimeDekho",
+      title: `🎬 NeoCDN ${src.type} [${src.size}]`,
+      url: src.url,
+      type: "url",
+      behaviorHints: { notWebReady: false },
+    },
+  ];
+  // Offer the raw trycloudflare URL as a separate "Direct" fallback.
+  // When a Cloudflare Worker throws Error 1101, the underlying trycloudflare
+  // tunnel may still be alive — user devices on residential IPs can usually
+  // reach it directly even when our data-center IP is blocked with HTTP 403.
+  if (src.rawUrl && src.rawUrl !== src.url) {
+    streams.push({
+      name: "AnimeDekho",
+      title: `🎬 NeoCDN ${src.type} Direct [${src.size}]`,
+      url: src.rawUrl,
+      type: "url",
+      behaviorHints: { notWebReady: false },
+    });
+  }
+  return streams;
 }
 
 async function collectAnimeDekhoEpisodeStreams(
@@ -963,7 +979,7 @@ async function collectAnimeDekhoEpisodeStreams(
       for (const s of r.value) streams.push(adEnsurePlayable(s));
     }
   }
-  for (const src of neoCdnSources) streams.push(neoCdnSourceToStream(src));
+  for (const src of neoCdnSources) streams.push(...neoCdnSourceToStream(src));
   return streams;
 }
 
@@ -1002,7 +1018,7 @@ async function collectAnimeDekhoPageStreams(pageUrl: string): Promise<ADStream[]
       for (const s of r.value) streams.push(adEnsurePlayable(s));
     }
   }
-  for (const src of neoCdnSources) streams.push(neoCdnSourceToStream(src));
+  for (const src of neoCdnSources) streams.push(...neoCdnSourceToStream(src));
   return streams;
 }
 

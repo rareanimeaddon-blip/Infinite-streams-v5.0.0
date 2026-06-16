@@ -654,8 +654,13 @@ export async function getNeoCdnStreams(
     }
 
     // Wrap every source URL through the worker proxy so Stremio can play it.
+    // Also preserve the original trycloudflare.com URL as `rawUrl` — this lets us
+    // offer a "Direct" fallback stream. Residential IP devices (phones, home routers)
+    // can usually reach trycloudflare URLs directly, whereas Cloudflare Workers sometimes
+    // throw Error 1101 when their script has a bug or the tunnel has expired.
     const sources: NeoCdnSource[] = data.sources.map((s) => ({
       ...s,
+      rawUrl: s.url,
       url: workerUrl ? workerUrl + encodeURIComponent(s.url) : s.url,
     }));
 
