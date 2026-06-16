@@ -9,6 +9,38 @@ import {
 } from "../providers/meowtv.js";
 import { BASE_PATH } from "../lib/base-path.js";
 
+// ─── PNG-wrapper stripping ────────────────────────────────────────────────────
+// 1shows.app (TikTok CDN) hides MPEG-TS segments inside a fake PNG envelope:
+//   Bytes 0–119  : minimal 1×1 PNG (IHDR + sRGB + gAMA + pHYs + IDAT + IEND)
+//   Bytes 120–end: raw 188-byte MPEG-TS packets
+//
+// The IEND chunk always ends with the fixed 8-byte sequence
+//   49 45 4E 44  AE 42 60 82   ("IEND" + its invariant CRC)
+// We locate that marker, skip past it, verify the 0x47 TS sync byte, and
+// serve the real payload as video/mp2t so that LG TV (and any standards-
+// compliant HLS player) can decode it.
+
+const IEND_MAGIC = Buffer.from([0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82]);
+
+function stripPngTsWrapper(body: Buffer): { buf: Buffer; stripped: boolean } {
+  if (
+    body.length < 128 ||
+    body[0] !== 0x89 ||
+    body[1] !== 0x50 ||
+    body[2] !== 0x4e ||
+    body[3] !== 0x47
+  ) {
+    return { buf: body, stripped: false };
+  }
+  const iendIdx = body.indexOf(IEND_MAGIC);
+  if (iendIdx === -1) return { buf: body, stripped: false };
+  const tsStart = iendIdx + IEND_MAGIC.length;
+  if (tsStart >= body.length) return { buf: body, stripped: false };
+  const tsData = body.subarray(tsStart);
+  if (tsData[0] !== 0x47) return { buf: body, stripped: false };
+  return { buf: tsData, stripped: true };
+}
+
 const router = Router();
 
 const UA =
@@ -72,10 +104,25 @@ router.get("/meow-proxy", async (req: Request, res: Response): Promise<void> => 
     const upstream = await fetch(targetUrl, { headers: buildUpstreamHeaders(extraHeaders) });
     if (!upstream.ok) { res.status(502).send(`Upstream ${upstream.status}`); return; }
 
-    const ct = upstream.headers.get("content-type");
-    if (ct) res.setHeader("Content-Type", ct);
+    const ct = upstream.headers.get("content-type") ?? "";
     res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
 
+    // If the CDN mislabels the segment as an image (1shows.app/TikTok CDN
+    // hides MPEG-TS inside a fake PNG envelope), buffer and strip the wrapper.
+    if (ct.startsWith("image/")) {
+      const bodyBuf = Buffer.from(await upstream.arrayBuffer());
+      const { buf, stripped } = stripPngTsWrapper(bodyBuf);
+      if (stripped) {
+        logger.debug({ targetUrl: targetUrl.slice(0, 80) }, "MeowTV proxy: stripped PNG wrapper → video/mp2t");
+        res.setHeader("Content-Type", "video/mp2t");
+      } else {
+        if (ct) res.setHeader("Content-Type", ct);
+      }
+      res.end(buf);
+      return;
+    }
+
+    if (ct) res.setHeader("Content-Type", ct);
     if (!upstream.body) { res.end(); return; }
 
     const nodeStream = Readable.fromWeb(upstream.body as import("stream/web").ReadableStream);
