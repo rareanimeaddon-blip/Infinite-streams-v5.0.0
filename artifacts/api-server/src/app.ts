@@ -136,6 +136,15 @@ function serveLandingPage(req: express.Request, res: express.Response) {
       desc: "Rich multi-audio library with Original, Hindi, English, Bengali and more audio tracks.",
     },
     {
+      key: "meowtv",
+      name: "MeowTV",
+      emoji: "🐱",
+      color: "#ec4899",
+      glow: "rgba(236,72,153,0.3)",
+      tags: ["Lynx", "Hindi", "TCloud", "HLS"],
+      desc: "Multi-server HLS streams via meowtv.ru — Lynx, Pseudo, TCloud, IPCloud & Hindi (v1/v2/v3) servers.",
+    },
+    {
       key: "dahmermovies",
       name: "DahmerMovies",
       emoji: "💀",
@@ -214,7 +223,7 @@ function serveLandingPage(req: express.Request, res: express.Response) {
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<meta name="description" content="INFINITE STREAMS — 12 providers, one addon. AnimeSalt, RareAnime, AnimeDekho, NetMirror, MovieBox, HindMoviez, Castle TV, DahmerMovies, StreamFlix, DooFlix, HDHub4U, 4KHDHub. Install in one click."/>
+<meta name="description" content="INFINITE STREAMS — 13 providers, one addon. AnimeSalt, RareAnime, AnimeDekho, NetMirror, StreamFlix, CastleTV, MovieBox, MeowTV, DahmerMovies, HindMoviez, 4KHDHub, HDHub4U, DooFlix. Install in one click."/>
 <title>INFINITE STREAMS — Stremio Addon</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300..900;1,14..32,300..900&display=swap" rel="stylesheet"/>
@@ -369,7 +378,7 @@ footer{border-top:1px solid var(--border);padding:48px 0;text-align:center}
   <div class="container">
     <div class="hero-pill">
       <div class="hero-pill-dot"></div>
-      ${manifest.catalogs.length} catalogs · 12 providers · Live
+      ${manifest.catalogs.length} catalogs · 13 providers · Live
     </div>
     <div class="brand-logo"><img src="${BASE_PATH}/logo.png" alt="INFINITE STREAMS"/></div>
     <div class="feature-badges">
@@ -383,7 +392,7 @@ footer{border-top:1px solid var(--border);padding:48px 0;text-align:center}
       <span class="h1-line1">INFINITE</span>
       <span class="h1-line2">STREAMS</span>
     </h1>
-    <p class="hero-sub">12 providers. One addon. Zero compromise.<br/>Movies, series &amp; anime from every corner of the web.</p>
+    <p class="hero-sub">13 providers. One addon. Zero compromise.<br/>Movies, series &amp; anime from every corner of the web.</p>
     <div class="credit-tag">By <a href="https://t.me/Master_si" target="_blank">@Master_si</a></div>
 
     <div class="install-box">
@@ -501,7 +510,7 @@ footer{border-top:1px solid var(--border);padding:48px 0;text-align:center}
       <img src="${BASE_PATH}/logo.png" alt="∞" style="width:32px;height:32px;border-radius:8px;object-fit:cover"/>
       <span class="footer-name">INFINITE STREAMS</span>
     </div>
-    <p class="footer-desc">12 providers, zero compromise. Movies, series &amp; anime from every corner of the web. Free forever.</p>
+    <p class="footer-desc">13 providers, zero compromise. Movies, series &amp; anime from every corner of the web. Free forever.</p>
     <div class="footer-links">
       <a href="${defaultManifestUrl}" target="_blank">manifest.json</a>
       <a href="${base}${BASE_PATH}/debug" class="footer-debug-btn">🛠 Debug Console</a>
@@ -519,7 +528,7 @@ footer{border-top:1px solid var(--border);padding:48px 0;text-align:center}
     <img src="${BASE_PATH}/logo.png" alt="∞" style="width:28px;height:28px;border-radius:6px;object-fit:cover;flex-shrink:0"/>
     <div>
       <div class="sticky-bar-title">INFINITE STREAMS</div>
-      <div class="sticky-bar-sub">12 providers, one addon</div>
+      <div class="sticky-bar-sub">13 providers, one addon</div>
     </div>
   </div>
   <a href="${stremioUrl}" class="sticky-install" id="sticky-install-btn">

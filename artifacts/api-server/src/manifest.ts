@@ -2,22 +2,22 @@ export const ADDON_ID = "community.infinitestreams.stremio";
 
 export const manifest = {
   id: ADDON_ID,
-  version: "8.3.0",
+  version: "8.4.0",
   name: "INFINITE STREAMS",
   description:
-    "♾️ 12 providers. One addon. Zero compromise.\n" +
+    "♾️ 13 providers. One addon. Zero compromise.\n" +
     "⛩️ AnimeSalt — Hindi, English & Japanese multi-audio anime HLS.\n" +
     "🌙 RareAnime India — Hindi & Tamil dubbed anime (rareanimes.buzz + animetoonhindi).\n" +
     "🇮🇳 AnimeDekho — Hindi/Tamil/Telugu dubbed anime via 15+ extractors.\n" +
     "🌐 NetMirror — 1080p mirrors of Netflix, Prime Video & Hotstar.\n" +
     "🎬 StreamFlix — Multi-audio & multilingual streaming library.\n" +
     "🏰 Castle TV — Tamil/Hindi/English multi-language streams.\n" +
+    "🍿 MovieBox — Multi-audio: Hindi, Bengali, English & more.\n" +
+    "🐱 MeowTV — Lynx, Pseudo, TCloud, IPCloud & Hindi servers (meowtv.ru).\n" +
     "💀 DahmerMovies — High-quality 1080p/4K direct file streams.\n" +
     "🎞️ HindMoviez — Bollywood, Hollywood & Hindi-dubbed in 480p–4K.\n" +
-    "🍿 MovieBox — Multi-audio: Hindi, Bengali, English & more.\n" +
-    "🎬 DooFlix — HLS streams via xpass.top for movies & series.\n" +
-    "📡 HDHub4U — Hindi/Dual-audio movies & series via HubCloud CDN.\n" +
     "🔵 4KHDHub — 4K/1080p Hindi & Dual-audio streams via HubCloud CDN.\n" +
+    "📡 HDHub4U — Hindi/Dual-audio movies & series via HubCloud CDN.\n" +
     "Supports IMDB, TMDB & Cinemeta IDs. | By @Master_si",
   logo: "https://i.imgur.com/YPqM5vW.png",
   background: "https://i.imgur.com/f4Rj2Qp.jpg",
@@ -143,5 +143,5 @@ export const manifest = {
 };
 
 // Provider config — order must match PROVIDER_LIST in lib/provider-config.ts
-// Index: 0=animesalt 1=rareanime 2=animedekho 3=netmirror 4=streamflix 5=dooflix 6=castletv 7=moviebox 8=dahmermovies 9=hindmovies 10=hdhub4u 11=fourkdhub
-export const ALL_ENABLED_MASK = "111111111111";
+// Index: 0=animesalt 1=rareanime 2=animedekho 3=netmirror 4=streamflix 5=dooflix 6=castletv 7=moviebox 8=meowtv 9=dahmermovies 10=hindmovies 11=fourkdhub 12=hdhub4u
+export const ALL_ENABLED_MASK = "1111111111111";
