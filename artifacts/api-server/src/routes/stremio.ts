@@ -911,7 +911,7 @@ function proxyHindMoviezStreams(
 }
 
 function neoCdnSourceToStream(src: NeoCdnSource): ADStream[] {
-  const streams: ADStream[] = [
+  return [
     {
       name: "AnimeDekho | NeoCDN",
       title: `${src.type} [${src.size}]`,
@@ -920,20 +920,6 @@ function neoCdnSourceToStream(src: NeoCdnSource): ADStream[] {
       behaviorHints: { notWebReady: false },
     },
   ];
-  // Offer the raw trycloudflare URL as a separate "Direct" fallback.
-  // When a Cloudflare Worker throws Error 1101, the underlying trycloudflare
-  // tunnel may still be alive — user devices on residential IPs can usually
-  // reach it directly even when our data-center IP is blocked with HTTP 403.
-  if (src.rawUrl && src.rawUrl !== src.url) {
-    streams.push({
-      name: "AnimeDekho | NeoCDN",
-      title: `${src.type} Direct [${src.size}]`,
-      url: src.rawUrl,
-      type: "url",
-      behaviorHints: { notWebReady: false },
-    });
-  }
-  return streams;
 }
 
 async function collectAnimeDekhoEpisodeStreams(
