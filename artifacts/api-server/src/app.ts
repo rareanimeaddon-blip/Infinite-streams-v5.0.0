@@ -55,8 +55,8 @@ function serveLandingPage(req: express.Request, res: express.Response) {
   const stremioUrl = defaultManifestUrl.replace(/^https?:\/\//, "stremio://");
 
   // Provider order MUST match PROVIDER_LIST in lib/provider-config.ts
-  // 0=animesalt 1=rareanime 2=animedekho 3=netmirror 4=streamflix 5=dooflix
-  // 6=castletv 7=moviebox 8=meowtv 9=dahmermovies 10=hindmovies 11=fourkdhub 12=hdhub4u
+  // 0=kartoons 1=animesalt 2=rareanime 3=animedekho 4=netmirror 5=streamflix
+  // 6=castletv 7=dooflix 8=moviebox 9=meowtv 10=dahmermovies 11=hindmovies 12=fourkdhub 13=hdhub4u
   const providers: Array<{
     key: string;
     name: string;
@@ -67,6 +67,16 @@ function serveLandingPage(req: express.Request, res: express.Response) {
     desc: string;
     category: string;
   }> = [
+    {
+      key: "kartoons",
+      name: "Kartoons",
+      emoji: "🎌",
+      color: "#22c55e",
+      glow: "rgba(34,197,94,0.25)",
+      tags: ["Anime", "Cartoons", "Hindi", "English"],
+      desc: "479 shows & 515 movies: Hindi & English dubbed anime and cartoons via dedicated Kartoons streaming API.",
+      category: "anime",
+    },
     {
       key: "animesalt",
       name: "AnimeSalt",
@@ -246,7 +256,7 @@ function serveLandingPage(req: express.Request, res: express.Response) {
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<meta name="description" content="INFINITE STREAMS — 13 providers, one addon. AnimeSalt, RareAnime, AnimeDekho, NetMirror, StreamFlix, CastleTV, MovieBox, MeowTV, DahmerMovies, HindMoviez, 4KHDHub, HDHub4U, DooFlix. Install in one click."/>
+<meta name="description" content="INFINITE STREAMS — 14 providers, one addon. Kartoons, AnimeSalt, RareAnime, AnimeDekho, NetMirror, StreamFlix, CastleTV, DooFlix, MovieBox, MeowTV, DahmerMovies, HindMoviez, 4KHDHub, HDHub4U. Install in one click."/>
 <title>INFINITE STREAMS — Stremio Addon</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300..900;1,14..32,300..900&display=swap" rel="stylesheet"/>
@@ -463,7 +473,7 @@ footer{border-top:1px solid var(--border);padding:52px 0;text-align:center}
 
     <div class="hero-pill">
       <div class="hero-pill-dot"></div>
-      ${manifest.catalogs.length} catalogs &nbsp;·&nbsp; 13 providers &nbsp;·&nbsp; Live
+      ${manifest.catalogs.length} catalogs &nbsp;·&nbsp; 14 providers &nbsp;·&nbsp; Live
     </div>
 
     <div class="brand-logo">
@@ -475,7 +485,7 @@ footer{border-top:1px solid var(--border);padding:52px 0;text-align:center}
       <span class="h1-word2">STREAMS</span>
     </h1>
 
-    <p class="hero-sub">13 providers. One addon. Zero compromise.<br/>Movies, series &amp; anime — all in one install.</p>
+    <p class="hero-sub">14 providers. One addon. Zero compromise.<br/>Movies, series &amp; anime — all in one install.</p>
     <div class="credit-tag">Made by <a href="https://t.me/Master_si" target="_blank">@Master_si</a></div>
 
     <div class="install-box">
@@ -621,7 +631,7 @@ footer{border-top:1px solid var(--border);padding:52px 0;text-align:center}
       <img src="${BASE_PATH}/logo.png" alt="∞"/>
       <span class="footer-name">INFINITE STREAMS</span>
     </div>
-    <p class="footer-desc">13 providers, zero compromise. Movies, series &amp; anime from every corner of the web. Free forever.</p>
+    <p class="footer-desc">14 providers, zero compromise. Movies, series &amp; anime from every corner of the web. Free forever.</p>
     <div class="footer-links">
       <a href="${defaultManifestUrl}" target="_blank">manifest.json</a>
       <a href="${base}${BASE_PATH}/debug" class="footer-debug-btn">🛠 Debug Console</a>
@@ -639,7 +649,7 @@ footer{border-top:1px solid var(--border);padding:52px 0;text-align:center}
     <img src="${BASE_PATH}/logo.png" alt="∞"/>
     <div>
       <div class="sticky-bar-title">INFINITE STREAMS</div>
-      <div class="sticky-bar-sub">13 providers · one addon</div>
+      <div class="sticky-bar-sub">14 providers · one addon</div>
     </div>
   </div>
   <a href="${stremioUrl}" class="sticky-install" id="sticky-install-btn">

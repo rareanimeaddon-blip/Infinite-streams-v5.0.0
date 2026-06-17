@@ -12,19 +12,25 @@ A Stremio addon (v8.3.0) that aggregates streams from 12 providers into a single
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
 - API: Express 5, esbuild (fully self-contained ESM bundle)
-- 12 stream providers: HDHub4U, 4KHDHub, HindMoviez, DahmerMovies, MovieBox, CastleTV, DooFlix, StreamFlix, NetMirror, TIK2, AnimeSalt, RareAnime, AnimeDekho
+- 14 stream providers: Kartoons, AnimeSalt, RareAnime, AnimeDekho, NetMirror, StreamFlix, CastleTV, DooFlix, MovieBox, MeowTV, DahmerMovies, HindMoviez, 4KHDHub, HDHub4U
 - Title matching: Typesense (HDHub4U) + custom `titleSimilarityScore` (Jaccard + length penalty)
 - Health endpoint: `GET /api/healthz`
 
 ## Where things live
 
-- `artifacts/api-server/src/providers/` — one file per stream provider
+- `artifacts/api-server/src/providers/` — one file per stream provider (kartoons.ts added)
+- `artifacts/api-server/src/lib/kartoons-config.ts` — Kartoons config loader (token, base URL)
+- `artifacts/api-server/src/lib/kartoons-addon.ts` — Kartoons Stremio addon API client (search, episodes, streams)
 - `artifacts/api-server/src/routes/stremio.ts` — main aggregation logic, per-provider stream functions
 - `artifacts/api-server/src/providers/hdhub4u-base.ts` — `cleanTitle()`, Typesense search
 - `artifacts/api-server/src/utils/title-score.ts` — `titleSimilarityScore()` (Jaccard + abbreviation handling)
 - `artifacts/api-server/src/lib/meta-resolver.ts` — IMDB → title via Cinemeta + TMDB
 - `artifacts/api-server/src/manifest.ts` — addon manifest + provider list
 - `scripts/src/provider-test.ts` — end-to-end provider health test script
+
+## Version history
+
+- v8.5.0 — Added Kartoons as 14th provider (index 0); provider mask is now 14 chars ("11111111111111"). 3 new catalogs: kartoons_anime, kartoons_cartoons, kartoons_movies. `kartoons:` added to idPrefixes/resources.
 
 ## Architecture decisions
 

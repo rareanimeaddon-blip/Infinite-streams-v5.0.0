@@ -2,33 +2,35 @@
  * Provider configuration — controls which providers are used for stream aggregation.
  *
  * Provider order (index must match here, in PROVIDER_LIST, and in the landing page checkboxes):
- *   0 = animesalt
- *   1 = rareanime
- *   2 = animedekho
- *   3 = netmirror
- *   4 = streamflix
- *   5 = dooflix
+ *   0 = kartoons
+ *   1 = animesalt
+ *   2 = rareanime
+ *   3 = animedekho
+ *   4 = netmirror
+ *   5 = streamflix
  *   6 = castletv
- *   7 = moviebox
- *   8 = meowtv
- *   9 = dahmermovies
- *  10 = hindmovies
- *  11 = fourkdhub
- *  12 = hdhub4u
+ *   7 = dooflix
+ *   8 = moviebox
+ *   9 = meowtv
+ *  10 = dahmermovies
+ *  11 = hindmovies
+ *  12 = fourkdhub
+ *  13 = hdhub4u
  *
- * The config mask is a 13-character string of '0' or '1'.
+ * The config mask is a 14-character string of '0' or '1'.
  * '1' means enabled, '0' means disabled.
- * "1111111111111" = all providers enabled (default).
+ * "11111111111111" = all providers enabled (default).
  */
 
 export const PROVIDER_LIST = [
+  "kartoons",
   "animesalt",
   "rareanime",
   "animedekho",
   "netmirror",
   "streamflix",
-  "dooflix",
   "castletv",
+  "dooflix",
   "moviebox",
   "meowtv",
   "dahmermovies",
@@ -39,7 +41,7 @@ export const PROVIDER_LIST = [
 
 export type ProviderKey = (typeof PROVIDER_LIST)[number];
 
-export const ALL_PROVIDERS_MASK = "1111111111111";
+export const ALL_PROVIDERS_MASK = "11111111111111";
 
 export function parseProviderConfig(config: string): Set<ProviderKey> {
   const enabled = new Set<ProviderKey>();

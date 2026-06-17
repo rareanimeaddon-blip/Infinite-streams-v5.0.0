@@ -2,16 +2,18 @@ export const ADDON_ID = "community.infinitestreams.stremio";
 
 export const manifest = {
   id: ADDON_ID,
-  version: "8.4.0",
+  version: "8.5.0",
   name: "INFINITE STREAMS",
   description:
-    "♾️ 13 providers. One addon. Zero compromise.\n" +
+    "♾️ 14 providers. One addon. Zero compromise.\n" +
+    "🎌 Kartoons — 479 shows & 515 movies: Hindi/English anime & cartoons.\n" +
     "⛩️ AnimeSalt — Hindi, English & Japanese multi-audio anime HLS.\n" +
     "🌙 RareAnime India — Hindi & Tamil dubbed anime (rareanimes.buzz + animetoonhindi).\n" +
     "🇮🇳 AnimeDekho — Hindi/Tamil/Telugu dubbed anime via 15+ extractors.\n" +
     "🌐 NetMirror — 1080p mirrors of Netflix, Prime Video & Hotstar.\n" +
     "🎬 StreamFlix — Multi-audio & multilingual streaming library.\n" +
     "🏰 Castle TV — Tamil/Hindi/English multi-language streams.\n" +
+    "📺 DooFlix — HLS streams via xpass.top matched by IMDB ID.\n" +
     "🍿 MovieBox — Multi-audio: Hindi, Bengali, English & more.\n" +
     "🐱 MeowTV — Lynx, Pseudo, TCloud, IPCloud & Hindi servers (meowtv.ru).\n" +
     "💀 DahmerMovies — High-quality 1080p/4K direct file streams.\n" +
@@ -34,6 +36,33 @@ export const manifest = {
       id: "infinitestreams_series",
       name: "♾️ INFINITE STREAMS — Series",
       extra: [{ name: "skip", isRequired: false }],
+    },
+    {
+      type: "series",
+      id: "kartoons_anime",
+      name: "🎌 Kartoons — Anime",
+      extra: [
+        { name: "search", isRequired: false },
+        { name: "skip", isRequired: false },
+      ],
+    },
+    {
+      type: "series",
+      id: "kartoons_cartoons",
+      name: "🎌 Kartoons — Cartoons",
+      extra: [
+        { name: "search", isRequired: false },
+        { name: "skip", isRequired: false },
+      ],
+    },
+    {
+      type: "movie",
+      id: "kartoons_movies",
+      name: "🎌 Kartoons — Movies",
+      extra: [
+        { name: "search", isRequired: false },
+        { name: "skip", isRequired: false },
+      ],
     },
     {
       type: "series",
@@ -129,11 +158,11 @@ export const manifest = {
   ],
   resources: [
     "catalog",
-    { name: "meta", types: ["movie", "series"], idPrefixes: ["animedekho:", "rareanime:", "atoon:"] },
-    { name: "stream", types: ["movie", "series"], idPrefixes: ["tt", "tmdb:", "animedekho:", "rareanime:", "atoon:"] },
+    { name: "meta", types: ["movie", "series"], idPrefixes: ["animedekho:", "rareanime:", "atoon:", "kartoons:"] },
+    { name: "stream", types: ["movie", "series"], idPrefixes: ["tt", "tmdb:", "animedekho:", "rareanime:", "atoon:", "kartoons:"] },
     { name: "subtitles", types: ["movie", "series"], idPrefixes: ["tt"] },
   ],
-  idPrefixes: ["tt", "tmdb:", "animedekho:", "rareanime:", "atoon:"],
+  idPrefixes: ["tt", "tmdb:", "animedekho:", "rareanime:", "atoon:", "kartoons:"],
   behaviorHints: {
     adult: false,
     p2p: false,
@@ -143,5 +172,5 @@ export const manifest = {
 };
 
 // Provider config — order must match PROVIDER_LIST in lib/provider-config.ts
-// Index: 0=animesalt 1=rareanime 2=animedekho 3=netmirror 4=streamflix 5=dooflix 6=castletv 7=moviebox 8=meowtv 9=dahmermovies 10=hindmovies 11=fourkdhub 12=hdhub4u
-export const ALL_ENABLED_MASK = "1111111111111";
+// Index: 0=kartoons 1=animesalt 2=rareanime 3=animedekho 4=netmirror 5=streamflix 6=castletv 7=dooflix 8=moviebox 9=meowtv 10=dahmermovies 11=hindmovies 12=fourkdhub 13=hdhub4u
+export const ALL_ENABLED_MASK = "11111111111111";

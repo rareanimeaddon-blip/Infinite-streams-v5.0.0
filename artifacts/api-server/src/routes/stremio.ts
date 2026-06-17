@@ -33,6 +33,8 @@ import { fetchStreamflixStreams } from "../castle-tv/streamflix.js";
 import { getDooflixMovieStreams, getDooflixSeriesStreams, type DooflixStream } from "../providers/dooflix.js";
 import { getMeowTvStreams } from "../providers/meowtv.js";
 import { getStreams as animesaltGetStreams, getStreamsByTitle as animesaltGetStreamsByTitle } from "../providers/animesalt.js";
+import { getKartoonsCatalog } from "../providers/kartoons.js";
+import { searchKartoonsAddon, getEpisodeId as getKartoonsEpisodeId, getStreamsFromAddon as getKartoonsStreamsFromAddon } from "../lib/kartoons-addon.js";
 import { getAnimeCatalog } from "../providers/animesalt-catalog.js";
 import {
   catalog as animeDekhoGetCatalog,
@@ -291,6 +293,34 @@ router.get(
           res.json({ metas: paged.map((m) => ({ id: m.id, type: m.type, name: m.name, poster: m.poster, genres: ["Anime", "Hindi Dubbed"] })) });
         } catch (e) {
           logger.error({ err: e }, "AnimeToon: catalog error");
+          res.json({ metas: [] });
+        }
+        return;
+      }
+
+      // Kartoons catalogs
+      if (id === "kartoons_anime" || id === "kartoons_cartoons" || id === "kartoons_movies") {
+        try {
+          const catalogType = id === "kartoons_movies" ? "movie" : "series";
+          const category = id === "kartoons_anime" ? "Anime" : id === "kartoons_cartoons" ? "Cartoon" : undefined;
+          let items = await getKartoonsCatalog(catalogType, skip, category as "Anime" | "Cartoon" | undefined);
+          if (search.trim().length > 1) {
+            const q = search.trim().toLowerCase();
+            items = items.filter((m) => m.title.toLowerCase().includes(q));
+          }
+          const metas = items.map((m) => {
+            const obj: Record<string, unknown> = {
+              id: `kartoons:${m.id}`,
+              type: catalogType,
+              name: m.title,
+            };
+            if (m.poster) obj["poster"] = m.poster;
+            if (m.year) obj["releaseInfo"] = String(m.year);
+            return obj;
+          });
+          res.json({ metas });
+        } catch (e) {
+          logger.error({ err: e }, "Kartoons: catalog error");
           res.json({ metas: [] });
         }
         return;
@@ -2028,6 +2058,41 @@ router.get("/stream/:type/:id.json", async (req, res) => {
   logger.info({ type, id }, "Stremio: stream request");
 
   try {
+    // ── Native kartoons: IDs ─────────────────────────────────────────────────
+    if (id.startsWith("kartoons:")) {
+      try {
+        const parts = id.split(":");
+        const itemType = type === "movie" ? "movie" : "series";
+
+        if (itemType === "movie") {
+          const kartoonsId = parts.slice(0, 2).join(":");
+          const streams = await getKartoonsStreamsFromAddon(kartoonsId, "movie");
+          const formatted = streams.map((s) => ({ name: `🎌 Kartoons\n${s.name ?? ""}`.trim(), title: s.title, url: s.url, subtitles: s.subtitles, behaviorHints: s.behaviorHints }));
+          res.json({ streams: dedup(formatted) });
+        } else {
+          if (parts.length >= 4) {
+            const kartoonsShowId = parts.slice(0, 2).join(":");
+            const season = parseInt(parts[2]!);
+            const episode = parseInt(parts[3]!);
+            if (!isNaN(season) && !isNaN(episode)) {
+              const episodeId = await getKartoonsEpisodeId(kartoonsShowId, season, episode);
+              if (episodeId) {
+                const streams = await getKartoonsStreamsFromAddon(episodeId, "series");
+                const formatted = streams.map((s) => ({ name: `🎌 Kartoons\n${s.name ?? ""}`.trim(), title: s.title, url: s.url, subtitles: s.subtitles, behaviorHints: s.behaviorHints }));
+                res.json({ streams: dedup(formatted) });
+                return;
+              }
+            }
+          }
+          res.json({ streams: [] });
+        }
+      } catch (err) {
+        logger.error({ err, id }, "Kartoons: native stream error");
+        res.json({ streams: [] });
+      }
+      return;
+    }
+
     // ── Native rareanime: / atoon: IDs ───────────────────────────────────────
     if (id.startsWith("rareanime:") || id.startsWith("atoon:")) {
       try {
@@ -2100,14 +2165,15 @@ router.get("/stream/:type/:id.json", async (req, res) => {
         return;
       }
 
-      logger.info({ imdbId, title: meta.title, year: meta.year }, "Stremio: IMDB — querying 13 providers");
+      logger.info({ imdbId, title: meta.title, year: meta.year }, "Stremio: IMDB — querying 14 providers");
       logResolve({ imdbId, step: "resolve", status: "ok", detail: `${meta.title} (${meta.year})` });
 
       const sfTmdbId = await imdbToTmdbId(imdbId, type).catch(() => null);
 
       const ep = getEnabledProviders(req as RequestWithConfig);
       const isSeries = type === "series" && season !== undefined && episode !== undefined;
-      const [asResult, raResult, adResult, nmResult, sfResult, dfResult, ctResult, mbResult, mwResult, dmResult, hmResult, fkResult, hdResult] = await Promise.allSettled([
+      const [ktResult, asResult, raResult, adResult, nmResult, sfResult, dfResult, ctResult, mbResult, mwResult, dmResult, hmResult, fkResult, hdResult] = await Promise.allSettled([
+        ep.has("kartoons") ? getKartoonsStreams(meta.title, type as "movie" | "series", season, episode) : Promise.resolve([]),
         ep.has("animesalt") ? getAnimeSaltStreams(imdbId, type, season, episode, req) : Promise.resolve([]),
         ep.has("rareanime") ? getRareAnimeStreamsByTitle(meta.title, type, season, episode, req, meta.aliases) : Promise.resolve([]),
         ep.has("animedekho") ? getAnimeDekhoStreams(meta.title, type, season, episode) : Promise.resolve([]),
@@ -2123,6 +2189,7 @@ router.get("/stream/:type/:id.json", async (req, res) => {
         ep.has("hdhub4u") ? (isSeries ? getHDHub4USeriesStreams(meta.title, season!, episode!, imdbId) : getHDHub4UStreams(meta.title, type, imdbId)) : Promise.resolve([]),
       ]);
 
+      const ktStreams = ktResult.status === "fulfilled" ? ktResult.value : [];
       const asStreams = asResult.status === "fulfilled" ? asResult.value : [];
       const raStreams = raResult.status === "fulfilled" ? raResult.value : [];
       const adStreams = (adResult.status === "fulfilled" ? adResult.value : []).map((s) => adStreamToStremio(s, req));
@@ -2137,6 +2204,7 @@ router.get("/stream/:type/:id.json", async (req, res) => {
       const fkStreams = fkResult.status === "fulfilled" ? fkResult.value : [];
       const hdStreams = hdResult.status === "fulfilled" ? hdResult.value : [];
 
+      if (ktResult.status === "rejected") logger.error({ err: ktResult.reason, imdbId }, "Kartoons: crashed");
       if (asResult.status === "rejected") logger.error({ err: asResult.reason, imdbId }, "AnimeSalt: crashed");
       if (raResult.status === "rejected") logger.error({ err: raResult.reason, imdbId }, "RareAnime: crashed");
       if (adResult.status === "rejected") logger.error({ err: adResult.reason, imdbId }, "AnimeDekho: crashed");
@@ -2151,13 +2219,13 @@ router.get("/stream/:type/:id.json", async (req, res) => {
       if (fkResult.status === "rejected") logger.error({ err: fkResult.reason, imdbId }, "4KHDHub: crashed");
       if (hdResult.status === "rejected") logger.error({ err: hdResult.reason, imdbId }, "HDHub4U: crashed");
 
-      const raw = mergeSubtitles(dedup(([...asStreams, ...raStreams, ...adStreams, ...nmStreams, ...sfStreams, ...ctStreams, ...dfStreams, ...mbStreams, ...mwStreams, ...dmStreams, ...hmStreams, ...fkStreams, ...hdStreams]) as Record<string, unknown>[]));
+      const raw = mergeSubtitles(dedup(([...ktStreams, ...asStreams, ...raStreams, ...adStreams, ...nmStreams, ...sfStreams, ...ctStreams, ...dfStreams, ...mbStreams, ...mwStreams, ...dmStreams, ...hmStreams, ...fkStreams, ...hdStreams]) as Record<string, unknown>[]));
       const combined = premiumFormat(raw, meta.title, contentType, season, episode);
       logger.info(
-        { imdbId, title: meta.title, as: asStreams.length, ra: raStreams.length, ad: adStreams.length, nm: nmStreams.length, sf: sfStreams.length, df: dfStreams.length, ct: ctStreams.length, mb: mbStreams.length, mw: mwStreams.length, dm: dmStreams.length, hm: hmStreams.length, fk: fkStreams.length, hd: hdStreams.length, combined: combined.length },
-        "Stremio: 13 providers aggregated",
+        { imdbId, title: meta.title, kt: ktStreams.length, as: asStreams.length, ra: raStreams.length, ad: adStreams.length, nm: nmStreams.length, sf: sfStreams.length, df: dfStreams.length, ct: ctStreams.length, mb: mbStreams.length, mw: mwStreams.length, dm: dmStreams.length, hm: hmStreams.length, fk: fkStreams.length, hd: hdStreams.length, combined: combined.length },
+        "Stremio: 14 providers aggregated",
       );
-      logResolve({ imdbId, step: "done", status: combined.length ? "ok" : "fail", detail: `as=${asStreams.length} ra=${raStreams.length} ad=${adStreams.length} nm=${nmStreams.length} sf=${sfStreams.length} df=${dfStreams.length} ct=${ctStreams.length} mb=${mbStreams.length} mw=${mwStreams.length} dm=${dmStreams.length} hm=${hmStreams.length} fk=${fkStreams.length} hd=${hdStreams.length} total=${combined.length}` });
+      logResolve({ imdbId, step: "done", status: combined.length ? "ok" : "fail", detail: `kt=${ktStreams.length} as=${asStreams.length} ra=${raStreams.length} ad=${adStreams.length} nm=${nmStreams.length} sf=${sfStreams.length} df=${dfStreams.length} ct=${ctStreams.length} mb=${mbStreams.length} mw=${mwStreams.length} dm=${dmStreams.length} hm=${hmStreams.length} fk=${fkStreams.length} hd=${hdStreams.length} total=${combined.length}` });
 
       // Cache provider subtitles for LG TV (uses /subtitles/ endpoint, not stream.subtitles[])
       const firstSubs = (combined[0]?.["subtitles"] as Array<{url:string;lang:string;id:string}> | undefined) ?? [];
@@ -2187,7 +2255,7 @@ router.get("/stream/:type/:id.json", async (req, res) => {
         return;
       }
 
-      logger.info({ tmdbId: numericTmdbId, imdbId: meta.imdbId, title: meta.title }, "Stremio: TMDB — querying 13 providers");
+      logger.info({ tmdbId: numericTmdbId, imdbId: meta.imdbId, title: meta.title }, "Stremio: TMDB — querying 14 providers");
       logResolve({ imdbId: id, step: "resolve", status: "ok", detail: `${meta.title} (${meta.year}) imdb=${meta.imdbId}` });
 
       const hasImdb = meta.imdbId.startsWith("tt");
@@ -2195,7 +2263,8 @@ router.get("/stream/:type/:id.json", async (req, res) => {
 
       const ep2 = getEnabledProviders(req as RequestWithConfig);
       const isSeries2 = type === "series" && season !== undefined && episode !== undefined;
-      const [asResult, raResult, adResult, nmResult, sfResult, dfResult, ctResult, mbResult, mwResult, dmResult, hmResult, fkResult, hdResult] = await Promise.allSettled([
+      const [ktResult2, asResult, raResult, adResult, nmResult, sfResult, dfResult, ctResult, mbResult, mwResult, dmResult, hmResult, fkResult, hdResult] = await Promise.allSettled([
+        ep2.has("kartoons") ? getKartoonsStreams(meta.title, type as "movie" | "series", season, episode) : Promise.resolve([]),
         (ep2.has("animesalt") && hasImdb) ? getAnimeSaltStreams(meta.imdbId, type, season, episode, req) : Promise.resolve([]),
         ep2.has("rareanime") ? getRareAnimeStreamsByTitle(meta.title, type, season, episode, req, meta.aliases) : Promise.resolve([]),
         ep2.has("animedekho") ? getAnimeDekhoStreams(meta.title, type, season, episode) : Promise.resolve([]),
@@ -2211,6 +2280,7 @@ router.get("/stream/:type/:id.json", async (req, res) => {
         ep2.has("hdhub4u") ? (isSeries2 ? getHDHub4USeriesStreams(meta.title, season!, episode!, hasImdb ? meta.imdbId : undefined) : getHDHub4UStreams(meta.title, type, hasImdb ? meta.imdbId : undefined)) : Promise.resolve([]),
       ]);
 
+      const ktStreams2 = ktResult2.status === "fulfilled" ? ktResult2.value : [];
       const asStreams = asResult.status === "fulfilled" ? asResult.value : [];
       const raStreams = raResult.status === "fulfilled" ? raResult.value : [];
       const adStreams = (adResult.status === "fulfilled" ? adResult.value : []).map((s) => adStreamToStremio(s, req));
@@ -2225,6 +2295,7 @@ router.get("/stream/:type/:id.json", async (req, res) => {
       const fkStreams = fkResult.status === "fulfilled" ? fkResult.value : [];
       const hdStreams = hdResult.status === "fulfilled" ? hdResult.value : [];
 
+      if (ktResult2.status === "rejected") logger.error({ err: ktResult2.reason, tmdbId: numericTmdbId }, "Kartoons: crashed");
       if (asResult.status === "rejected") logger.error({ err: asResult.reason, tmdbId: numericTmdbId }, "AnimeSalt: crashed");
       if (raResult.status === "rejected") logger.error({ err: raResult.reason, tmdbId: numericTmdbId }, "RareAnime: crashed");
       if (adResult.status === "rejected") logger.error({ err: adResult.reason, tmdbId: numericTmdbId }, "AnimeDekho: crashed");
@@ -2239,13 +2310,13 @@ router.get("/stream/:type/:id.json", async (req, res) => {
       if (fkResult.status === "rejected") logger.error({ err: fkResult.reason, tmdbId: numericTmdbId }, "4KHDHub: crashed");
       if (hdResult.status === "rejected") logger.error({ err: hdResult.reason, tmdbId: numericTmdbId }, "HDHub4U: crashed");
 
-      const raw2 = mergeSubtitles(dedup(([...asStreams, ...raStreams, ...adStreams, ...nmStreams, ...sfStreams, ...ctStreams, ...dfStreams, ...mbStreams, ...mwStreams, ...dmStreams, ...hmStreams, ...fkStreams, ...hdStreams]) as Record<string, unknown>[]));
+      const raw2 = mergeSubtitles(dedup(([...ktStreams2, ...asStreams, ...raStreams, ...adStreams, ...nmStreams, ...sfStreams, ...ctStreams, ...dfStreams, ...mbStreams, ...mwStreams, ...dmStreams, ...hmStreams, ...fkStreams, ...hdStreams]) as Record<string, unknown>[]));
       const combined = premiumFormat(raw2, meta.title, contentType, season, episode);
       logger.info(
-        { tmdbId: numericTmdbId, title: meta.title, as: asStreams.length, ra: raStreams.length, ad: adStreams.length, nm: nmStreams.length, sf: sfStreams.length, df: dfStreams.length, ct: ctStreams.length, mb: mbStreams.length, mw: mwStreams.length, dm: dmStreams.length, hm: hmStreams.length, fk: fkStreams.length, hd: hdStreams.length, combined: combined.length },
-        "Stremio: TMDB 13 providers aggregated",
+        { tmdbId: numericTmdbId, title: meta.title, kt: ktStreams2.length, as: asStreams.length, ra: raStreams.length, ad: adStreams.length, nm: nmStreams.length, sf: sfStreams.length, df: dfStreams.length, ct: ctStreams.length, mb: mbStreams.length, mw: mwStreams.length, dm: dmStreams.length, hm: hmStreams.length, fk: fkStreams.length, hd: hdStreams.length, combined: combined.length },
+        "Stremio: TMDB 14 providers aggregated",
       );
-      logResolve({ imdbId: id, step: "done", status: combined.length ? "ok" : "fail", detail: `as=${asStreams.length} ra=${raStreams.length} ad=${adStreams.length} nm=${nmStreams.length} sf=${sfStreams.length} df=${dfStreams.length} ct=${ctStreams.length} mb=${mbStreams.length} mw=${mwStreams.length} dm=${dmStreams.length} hm=${hmStreams.length} fk=${fkStreams.length} hd=${hdStreams.length} total=${combined.length}` });
+      logResolve({ imdbId: id, step: "done", status: combined.length ? "ok" : "fail", detail: `kt=${ktStreams2.length} as=${asStreams.length} ra=${raStreams.length} ad=${adStreams.length} nm=${nmStreams.length} sf=${sfStreams.length} df=${dfStreams.length} ct=${ctStreams.length} mb=${mbStreams.length} mw=${mwStreams.length} dm=${dmStreams.length} hm=${hmStreams.length} fk=${fkStreams.length} hd=${hdStreams.length} total=${combined.length}` });
 
       // Cache provider subtitles for LG TV using the resolved IMDB ID
       if (meta.imdbId?.startsWith("tt")) {
@@ -2265,6 +2336,46 @@ router.get("/stream/:type/:id.json", async (req, res) => {
     res.json({ streams: [] });
   }
 });
+
+// ─── Kartoons stream helper ───────────────────────────────────────────────────
+
+async function getKartoonsStreams(
+  title: string,
+  type: "movie" | "series",
+  season: number,
+  episode: number,
+): Promise<Record<string, unknown>[]> {
+  try {
+    const kartoonsId = await searchKartoonsAddon(title, type);
+    if (!kartoonsId) {
+      logger.info({ title, type }, "Kartoons: not found");
+      return [];
+    }
+
+    let streamId = kartoonsId;
+
+    if (type === "series") {
+      const episodeId = await getKartoonsEpisodeId(kartoonsId, season, episode);
+      if (!episodeId) {
+        logger.info({ title, kartoonsId, season, episode }, "Kartoons: episode not found");
+        return [];
+      }
+      streamId = episodeId;
+    }
+
+    const streams = await getKartoonsStreamsFromAddon(streamId, type);
+    return streams.map((s) => ({
+      name: `🎌 Kartoons`,
+      title: s.title ?? s.name,
+      url: s.url,
+      subtitles: s.subtitles,
+      behaviorHints: s.behaviorHints,
+    }));
+  } catch (err) {
+    logger.error({ err, title }, "Kartoons: getKartoonsStreams error");
+    return [];
+  }
+}
 
 // ─── DooFlix stream helper ─────────────────────────────────────────────────────
 
