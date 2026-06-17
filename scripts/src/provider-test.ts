@@ -6,7 +6,7 @@
  * Usage: pnpm --filter @workspace/scripts run provider-test
  */
 
-const BASE = "http://localhost:80/api";
+const BASE = `http://localhost:${process.env["PORT"] ?? "5000"}/api`;
 
 // ── Test cases ────────────────────────────────────────────────────────────────
 const MOVIES: { title: string; imdb: string }[] = [
