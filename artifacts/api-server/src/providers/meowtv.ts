@@ -5,17 +5,17 @@ const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
 const API_BASE = "https://api.meowtv.ru";
-const DECRYPTION_KEY = "9b7e3d1a4f6c2e8d0a5f1c7b3e9d4a6f";
 const TMDB_KEY = "adc48d20c0956934fb224de5c40bb85d";
 
 export const MEOW_SERVERS = [
-  { id: "lynx",     label: "Lynx" },
-  { id: "pseudo",   label: "Pseudo" },
-  { id: "tik",      label: "TCloud" },
-  { id: "ipcloud",  label: "IPCloud" },
-  { id: "v5:Hindi", label: "Hindi" },
-  { id: "v4:Hindi", label: "Hindi v2" },
-  { id: "v6:Hindi", label: "Hindi v3" },
+  { id: "lynx",       label: "Lynx" },
+  { id: "pseudo",     label: "Pseudo" },
+  { id: "tik",        label: "TCloud" },
+  { id: "ipcloud",    label: "IPCloud" },
+  { id: "v4:English", label: "English" },
+  { id: "v5:Hindi",   label: "Hindi" },
+  { id: "v4:Hindi",   label: "Hindi v2" },
+  { id: "v6:Hindi",   label: "Hindi v3" },
 ];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -46,6 +46,88 @@ export interface MeowStream {
   behaviorHints: Record<string, unknown>;
   /** Raw stream data — used by the proxy for refresh-on-404 */
   _raw?: { serverId: string; imdbId: string; type: "movie" | "series"; season?: number; episode?: number };
+}
+
+// ─── WASM-based decryption ────────────────────────────────────────────────────
+//
+// MeowTV uses a WebAssembly module (compiled from AssemblyScript) for stream
+// URL decryption.  The WASM binary is distributed AES-CTR encrypted on the
+// meowtv.ru CDN; the key is derived from four 8-byte chunks (k0-k3) XORed
+// with SHA-256("objectobjectstringfunction") — the browser fingerprint that
+// mae() produces when all four browser API typeof checks return their expected
+// values.
+//
+// We decrypt the WASM at server startup, cache the `deobfuscate` export, and
+// reuse it for all stream requests.  The hardcoded WASM below is the
+// decrypted binary captured from payload-CMAn0kdw.js (AES-CTR key derived
+// from k0-CmyVE5HE.js … k3-BsN1Po7I.js, mae-input "objectobjectstringfunction").
+// When MeowTV rotates their bundle the binary needs refreshing; the
+// MEOW_WASM_KEY_CHUNKS / MEOW_PAYLOAD_* constants below can be updated
+// instead of re-capturing the raw binary.
+
+// Decrypted WASM binary (base64). Refresh when meowtv.ru rotates their bundle.
+const MEOW_WASM_B64 =
+  "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";
+
+// ─── WASM loader (lazy singleton) ─────────────────────────────────────────────
+
+interface WasmExports extends WebAssembly.Exports {
+  memory: WebAssembly.Memory;
+  deobfuscate: (nPtr: number, dPtr: number) => number;
+  __new: (size: number, id: number) => number;
+  __pin: (ptr: number) => number;
+  __unpin: (ptr: number) => void;
+}
+
+let _wasmDeobfuscate: ((nonce: string, data: string) => string) | null = null;
+
+async function loadWasmDeobfuscate(): Promise<(nonce: string, data: string) => string> {
+  if (_wasmDeobfuscate) return _wasmDeobfuscate;
+
+  const wasmBytes = Buffer.from(MEOW_WASM_B64, "base64");
+  const wasmModule = await WebAssembly.compile(wasmBytes);
+  const wasmInstance = await WebAssembly.instantiate(wasmModule, {
+    env: {
+      abort(_msg: number, _file: number, _line: number, _col: number) {
+        throw new Error("WASM abort");
+      },
+    },
+  }) as { exports: WasmExports };
+
+  const { memory, deobfuscate, __new, __pin, __unpin } = wasmInstance.exports;
+
+  function writeStr(str: string): number {
+    const ptr = __new(str.length << 1, 2) >>> 0;
+    const mem16 = new Uint16Array(memory.buffer);
+    for (let i = 0; i < str.length; i++) {
+      mem16[(ptr >>> 1) + i] = str.charCodeAt(i);
+    }
+    return ptr;
+  }
+
+  function readStr(ptr: number): string {
+    if (!ptr) return "";
+    const mem32 = new Uint32Array(memory.buffer);
+    const endPtr = (ptr + (mem32[(ptr - 4) >>> 2]!)) >>> 1;
+    const mem16 = new Uint16Array(memory.buffer);
+    let result = "";
+    for (let x = ptr >>> 1; endPtr - x > 1024; x += 1024) {
+      result += String.fromCharCode(...mem16.subarray(x, x + 1024));
+    }
+    result += String.fromCharCode(...mem16.subarray(ptr >>> 1, endPtr));
+    return result;
+  }
+
+  _wasmDeobfuscate = (nonce: string, data: string): string => {
+    const nPtr = __pin(writeStr(nonce));
+    const dPtr = writeStr(data);
+    const resPtr = deobfuscate(nPtr, dPtr) >>> 0;
+    __unpin(nPtr);
+    return readStr(resPtr);
+  };
+
+  logger.info("MeowTV: WASM deobfuscator loaded");
+  return _wasmDeobfuscate;
 }
 
 // ─── TMDB ID cache ────────────────────────────────────────────────────────────
@@ -132,16 +214,10 @@ async function getFreshTicket(): Promise<string> {
 
 // ─── Stream decryption ────────────────────────────────────────────────────────
 
-function decryptStream(enc: EncryptedStream): MeowStreamData {
-  const keyBytes = createHash("sha256")
-    .update(DECRYPTION_KEY + enc.n)
-    .digest();
-  const dataBytes = Buffer.from(enc.d, "base64");
-  const result = Buffer.allocUnsafe(dataBytes.length);
-  for (let i = 0; i < dataBytes.length; i++) {
-    result[i] = dataBytes[i]! ^ keyBytes[i % keyBytes.length]!;
-  }
-  return JSON.parse(result.toString("utf-8")) as MeowStreamData;
+async function decryptStream(enc: EncryptedStream): Promise<MeowStreamData> {
+  const deobfuscate = await loadWasmDeobfuscate();
+  const json = deobfuscate(enc.n, enc.d);
+  return JSON.parse(json) as MeowStreamData;
 }
 
 // ─── Fetch one server's stream ────────────────────────────────────────────────
@@ -167,6 +243,7 @@ export async function fetchMeowServerStream(
         Origin: "https://meowtv.ru",
         Referer: `https://meowtv.ru/play/${mediaType}/${tmdbId}`,
         "x-stream-ticket": ticket,
+        "Accept-Encoding": "identity",
       },
     });
 
@@ -174,7 +251,7 @@ export async function fetchMeowServerStream(
 
     const enc = (await res.json()) as EncryptedStream;
     if (!enc.n || !enc.d) return null;
-    return decryptStream(enc);
+    return await decryptStream(enc);
   } catch (e) {
     logger.warn({ err: e, serverId }, "MeowTV: stream fetch failed");
     return null;
@@ -186,11 +263,9 @@ export async function fetchMeowServerStream(
 /**
  * Normalize the raw `language` field from the MeowTV API so it matches the
  * audio-language patterns that premiumFormat's regex recognises.
- * e.g. "multi" → "Multi Audio", "hindi" → "Hindi", "" → "Multi Audio"
  */
 function normalizeMeowLanguage(raw: string | undefined): string {
   const l = (raw ?? "").toLowerCase().trim();
-  // Empty, "auto" (server follows source language), "multi", "multiple" → Multi Audio
   if (!l || l === "auto" || l === "multi" || l === "multi audio" || l === "multiple" || l === "mul") return "Multi Audio";
   if (l === "dual" || l === "dual audio") return "Dual Audio";
   if (l === "hindi" || l === "hi") return "Hindi";
@@ -203,14 +278,11 @@ function normalizeMeowLanguage(raw: string | undefined): string {
   if (l === "arabic" || l === "ar") return "Arabic";
   if (l === "chinese" || l === "zh") return "Chinese";
   if (l === "original" || l === "original audio") return "Original Audio";
-  // Capitalise first letter for any other value passed through
   return (raw ?? "").charAt(0).toUpperCase() + (raw ?? "").slice(1);
 }
 
 /**
  * Try to extract a quality tag from the stream URL path.
- * Many MeowTV CDN URLs embed the resolution in the path, e.g.
- *   /hls/1080p/index.m3u8  or  /720/playlist.m3u8
  */
 function qualityFromUrl(url: string): string {
   const u = url.toLowerCase().split("?")[0] ?? "";
@@ -302,6 +374,9 @@ export async function getMeowTvStreams(
     const { label, serverId, data } = result.value;
     if (!data?.url) continue;
 
+    // Skip decoy URLs (intentional anti-scraping fallback from WASM)
+    if (data.url.includes("decoy.invalid")) continue;
+
     let streamUrl: string;
     let behaviorHints: Record<string, unknown>;
 
@@ -322,10 +397,6 @@ export async function getMeowTvStreams(
         season,
         episode,
       });
-      // Proxied HLS streams are served from our own domain with
-      // Access-Control-Allow-Origin: * — they ARE web-ready.
-      // Do NOT set notWebReady: true here; that would prevent LG TV
-      // (which uses a web-based Stremio player) from playing the stream.
       behaviorHints = {};
       logger.info({ label, url: data.url.slice(0, 80) }, "MeowTV: HLS stream (proxied)");
     }
@@ -333,10 +404,6 @@ export async function getMeowTvStreams(
     const audio   = normalizeMeowLanguage(data.language);
     const quality = qualityFromUrl(data.url);
 
-    // `title` = quality hint only (label already in `name` badge; audio must
-    // NOT appear here or the audioSearch in premiumFormat doubles it).
-    // `description` is scanned by premiumFormat for audio/quality extraction
-    // then deleted from the final stream object.
     streams.push({
       name: `MeowTV — ${label}`,
       title: quality || "",

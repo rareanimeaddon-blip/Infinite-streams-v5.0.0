@@ -1,0 +1,1 @@
+- [MeowTV WASM decryption](meowtv-wasm-decryption.md) — scheme changed from SHA-256 XOR to AES-CTR-encrypted WASM; re-derivation steps + critical pitfall for embedding large base64 strings.
