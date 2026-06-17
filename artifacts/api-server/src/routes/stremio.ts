@@ -2173,7 +2173,7 @@ router.get("/stream/:type/:id.json", async (req, res) => {
       const ep = getEnabledProviders(req as RequestWithConfig);
       const isSeries = type === "series" && season !== undefined && episode !== undefined;
       const [ktResult, asResult, raResult, adResult, nmResult, sfResult, dfResult, ctResult, mbResult, mwResult, dmResult, hmResult, fkResult, hdResult] = await Promise.allSettled([
-        ep.has("kartoons") ? getKartoonsStreams(meta.title, type as "movie" | "series", season, episode) : Promise.resolve([]),
+        ep.has("kartoons") ? getKartoonsStreams(meta.title, type as "movie" | "series", season, episode, apiBase(req)) : Promise.resolve([]),
         ep.has("animesalt") ? getAnimeSaltStreams(imdbId, type, season, episode, req) : Promise.resolve([]),
         ep.has("rareanime") ? getRareAnimeStreamsByTitle(meta.title, type, season, episode, req, meta.aliases) : Promise.resolve([]),
         ep.has("animedekho") ? getAnimeDekhoStreams(meta.title, type, season, episode) : Promise.resolve([]),
@@ -2264,7 +2264,7 @@ router.get("/stream/:type/:id.json", async (req, res) => {
       const ep2 = getEnabledProviders(req as RequestWithConfig);
       const isSeries2 = type === "series" && season !== undefined && episode !== undefined;
       const [ktResult2, asResult, raResult, adResult, nmResult, sfResult, dfResult, ctResult, mbResult, mwResult, dmResult, hmResult, fkResult, hdResult] = await Promise.allSettled([
-        ep2.has("kartoons") ? getKartoonsStreams(meta.title, type as "movie" | "series", season, episode) : Promise.resolve([]),
+        ep2.has("kartoons") ? getKartoonsStreams(meta.title, type as "movie" | "series", season, episode, apiBase(req)) : Promise.resolve([]),
         (ep2.has("animesalt") && hasImdb) ? getAnimeSaltStreams(meta.imdbId, type, season, episode, req) : Promise.resolve([]),
         ep2.has("rareanime") ? getRareAnimeStreamsByTitle(meta.title, type, season, episode, req, meta.aliases) : Promise.resolve([]),
         ep2.has("animedekho") ? getAnimeDekhoStreams(meta.title, type, season, episode) : Promise.resolve([]),
@@ -2344,6 +2344,7 @@ async function getKartoonsStreams(
   type: "movie" | "series",
   season: number,
   episode: number,
+  proxyBase: string,
 ): Promise<Record<string, unknown>[]> {
   try {
     const kartoonsId = await searchKartoonsAddon(title, type);
@@ -2364,12 +2365,14 @@ async function getKartoonsStreams(
     }
 
     const streams = await getKartoonsStreamsFromAddon(streamId, type);
+    // Kartoons proxy URLs are IP-bound to our server's IP — route through
+    // /hmproxy so the request originates from the same IP that generated the URL.
     return streams.map((s) => ({
       name: `🎌 Kartoons`,
       title: s.title ?? s.name,
-      url: s.url,
+      url: `${proxyBase}/hmproxy?u=${encodeParam(s.url)}`,
       subtitles: s.subtitles,
-      behaviorHints: s.behaviorHints,
+      behaviorHints: { ...(s.behaviorHints ?? {}), notWebReady: true },
     }));
   } catch (err) {
     logger.error({ err, title }, "Kartoons: getKartoonsStreams error");
