@@ -130,49 +130,60 @@ export async function searchAddonCatalog(
   return metas;
 }
 
+// The addon's /catalog/.../search=... endpoint returns 0 results for everything.
+// We use the Kartoons REST API directly for title search instead.
+const KARTOONS_REST = "https://api.kartoons.me/api";
+
+async function restSearch(
+  title: string,
+  type: "movie" | "series",
+): Promise<Array<{ _id: string; title: string }>> {
+  try {
+    const endpoint = type === "movie" ? "/movies" : "/shows";
+    const q = encodeURIComponent(title);
+    const res = await http.get<{
+      success: boolean;
+      data?: Array<{ _id: string; title: string }>;
+    }>(`${KARTOONS_REST}${endpoint}?search=${q}&limit=15`, { timeout: 12000 });
+    return res.data?.data ?? [];
+  } catch (err) {
+    logger.debug({ err, title }, "kartoons REST search failed");
+    return [];
+  }
+}
+
+function scoreTitle(candidate: string, query: string): number {
+  const t = candidate.toLowerCase().trim();
+  const q = query.toLowerCase().trim();
+  if (t === q) return 100;
+  if (t.includes(q) || q.includes(t)) return 80;
+  const tw = t.split(/\s+/);
+  const qw = q.split(/\s+/);
+  const overlap = tw.filter((w) => qw.includes(w)).length;
+  return (overlap / Math.max(tw.length, qw.length)) * 60;
+}
+
 export async function searchKartoonsAddon(
   title: string,
   type: "movie" | "series",
 ): Promise<string | null> {
-  const { kartoonsToken } = getAddonConfig();
-  const cacheKey = `kartoons:addon:search:id:${type}:${kartoonsToken.slice(-8)}:${title.toLowerCase().trim()}`;
+  const cacheKey = `kartoons:addon:search:id:v2:${type}:${title.toLowerCase().trim()}`;
   const cached = getCache<string | null>(cacheKey);
   if (cached !== undefined) return cached;
 
-  const catalogId = type === "movie" ? "kartoons_movies" : "kartoons_shows";
-  const stremioType = type === "movie" ? "movie" : "series";
-  const q = encodeURIComponent(title);
+  const list = await restSearch(title, type);
 
-  const data = await addonGet<{ metas?: AddonMeta[] }>(
-    `/catalog/${stremioType}/${catalogId}/search=${q}.json`,
-  );
-  const metas = data?.metas ?? [];
-
-  if (!metas.length) {
+  if (!list.length) {
     setCache(cacheKey, null, 1800);
     return null;
   }
 
-  const lower = title.toLowerCase();
-  const best = metas
-    .map((m) => {
-      const t = m.name.toLowerCase();
-      let score = 0;
-      if (t === lower) score = 100;
-      else if (t.includes(lower) || lower.includes(t)) score = 80;
-      else {
-        const tw = t.split(/\s+/);
-        const qw = lower.split(/\s+/);
-        score =
-          (tw.filter((w) => qw.includes(w)).length /
-            Math.max(tw.length, qw.length)) *
-          60;
-      }
-      return { id: m.id, score };
-    })
+  const best = list
+    .map((m) => ({ id: `kartoons:${m._id}`, score: scoreTitle(m.title, title) }))
     .sort((a, b) => b.score - a.score)[0];
 
   const result = best && best.score >= 30 ? best.id : null;
+  logger.info({ title, type, result, topScore: best?.score }, "kartoons REST search result");
   setCache(cacheKey, result, 3600);
   return result;
 }
@@ -193,8 +204,31 @@ export async function getEpisodeId(
     setCache(cacheKey, videos, 3600);
   }
 
-  const ep = videos.find((v) => v.season === season && v.episode === episode);
-  return ep?.id ?? null;
+  // Try exact match first (used by native kartoons: ID path where Stremio
+  // passes the exact episode number from the meta response).
+  const exact = videos.find((v) => v.season === season && v.episode === episode);
+  if (exact) return exact.id;
+
+  // Index-based fallback for IMDB/TMDB paths: Stremio sends relative episode
+  // numbers (1, 2, 3...) within a season, but some Kartoons seasons use
+  // absolute/cumulative numbering (e.g. season 10 episodes start at 464).
+  // Sort the season's episodes by their stored number and treat episode N as
+  // the Nth entry (1-based index).
+  const seasonEps = videos
+    .filter((v) => v.season === season)
+    .sort((a, b) => a.episode - b.episode);
+
+  const byIndex = seasonEps[episode - 1]; // episode is 1-based
+  if (byIndex) {
+    logger.info(
+      { showKartoonsId, season, requestedEp: episode, resolvedEp: byIndex.episode, id: byIndex.id },
+      "kartoons: resolved episode by index fallback",
+    );
+    return byIndex.id;
+  }
+
+  logger.info({ showKartoonsId, season, episode, seasonEpCount: seasonEps.length }, "kartoons: episode not found");
+  return null;
 }
 
 export async function getStreamsFromAddon(
