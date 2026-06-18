@@ -9,9 +9,10 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-// Extra ports that Replit's proxy may route external-port-80 traffic to.
-// We bind all of them so the proxy succeeds regardless of which one it picks.
-const EXTRA_PORTS: number[] = [8081].filter((p) => p !== port);
+// Extra ports that Replit's proxy may route traffic to.
+// Port 8080: Replit routes /api/* requests here (path-based routing).
+// Port 8081: fallback for external-port-80 traffic on some proxy configs.
+const EXTRA_PORTS: number[] = [8080, 8081].filter((p) => p !== port);
 
 app.listen(port, (err) => {
   if (err) {
