@@ -2372,7 +2372,7 @@ async function getKartoonsStreams(
       title: s.title ?? s.name,
       url: `${proxyBase}/hmproxy?u=${encodeParam(s.url)}`,
       subtitles: s.subtitles,
-      behaviorHints: { ...(s.behaviorHints ?? {}), notWebReady: true },
+      behaviorHints: { ...(s.behaviorHints ?? {}) },
     }));
   } catch (err) {
     logger.error({ err, title }, "Kartoons: getKartoonsStreams error");

@@ -1178,14 +1178,53 @@ router.all("/hmproxy", async (req: Request, res: Response) => {
   res.setHeader("Content-Type", contentType);
   res.setHeader("Accept-Ranges", "bytes");
 
-  const contentLength = upstream.headers.get("content-length");
-  if (contentLength) res.setHeader("Content-Length", contentLength);
-
   const contentRange = upstream.headers.get("content-range");
   if (contentRange) res.setHeader("Content-Range", contentRange);
 
   res.setHeader("Cache-Control", "no-store");
   res.removeHeader("Content-Disposition");
+
+  // For HLS master playlists missing CODECS= attributes, buffer and rewrite them
+  // before forwarding. LG TV (webOS) and other strict HLS players require explicit
+  // codec declarations on #EXT-X-STREAM-INF lines to initialise the video decoder;
+  // without them the player picks audio fine (AAC is implicit) but leaves video black.
+  const isHls = contentType.includes("mpegurl") || targetUrl.includes(".m3u8");
+  if (isHls) {
+    const hlsChunks: Uint8Array[] = [];
+    if (firstChunk?.length) hlsChunks.push(firstChunk);
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        hlsChunks.push(value);
+      }
+    } catch { /* ignore early close */ }
+
+    let playlist = Buffer.concat(hlsChunks).toString("utf8");
+
+    // Only rewrite master playlists that declare stream variants but omit CODECS=.
+    // Kartoons streams are confirmed H.264 High Profile Level 4.0 + AAC.
+    if (playlist.includes("#EXT-X-STREAM-INF") && !playlist.includes("CODECS=")) {
+      playlist = playlist.replace(
+        /#EXT-X-STREAM-INF:([^\n\r]*)/g,
+        (_match, attrs: string) => `#EXT-X-STREAM-INF:${attrs},CODECS="avc1.640028,mp4a.40.2"`,
+      );
+    }
+
+    const hlsBody = Buffer.from(playlist, "utf8");
+    res.setHeader("Content-Length", hlsBody.length);
+    res.status(upstream.status);
+    logger.info(
+      { targetUrl, status: upstream.status, bytesSent: hlsBody.length, durationMs: Date.now() - t0 },
+      "HMProxy: done (m3u8 rewrite)",
+    );
+    res.end(hlsBody);
+    return;
+  }
+
+  const contentLength = upstream.headers.get("content-length");
+  if (contentLength) res.setHeader("Content-Length", contentLength);
+
   res.status(upstream.status);
 
   let bytesSent = 0;
