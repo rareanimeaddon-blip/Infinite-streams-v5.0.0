@@ -37,7 +37,15 @@ app.use(
     },
   }),
 );
-app.use(cors());
+app.use(
+  cors({
+    origin: "*",
+    methods: ["GET", "HEAD", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Accept", "Origin", "X-Requested-With"],
+    preflightContinue: false,
+    optionsSuccessStatus: 204,
+  }),
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
