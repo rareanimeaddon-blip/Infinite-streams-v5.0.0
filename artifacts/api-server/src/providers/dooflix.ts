@@ -65,6 +65,12 @@ async function fetchPlaylistStreams(
   for (const item of json.playlist ?? []) {
     for (const src of item.sources ?? []) {
       if (!src.file) continue;
+      // DooFlix returns /video/error (or similar) when they don't have the content.
+      // Serving this URL produces a broken stream that plays for <1 s then crashes.
+      if (/\/video\/error\b/i.test(src.file) || src.file.trim() === "/video/error") {
+        logger.debug({ file: src.file }, "DooFlix: skipping error-placeholder stream");
+        continue;
+      }
       const exp = src.file.match(/[?&]e=(\d+)/);
       if (exp && parseInt(exp[1]!, 10) < now) {
         logger.debug({ file: src.file }, "DooFlix: skipping expired stream");
