@@ -203,9 +203,17 @@ async function findMovieByTitle(title: string, year?: string, imdbId?: string): 
       const idMatch = results.find((m) => m.imdbId && m.imdbId === imdbId);
       if (idMatch) return idMatch;
     }
+    // Year-coherent pool: when the requested year is known, exclude any site result
+    // that carries a year MORE than 2 years away. Results with no year on the site
+    // are always kept (can't verify). This prevents "Friends" (1994) from matching
+    // a Hindi show of the same name from a different era.
+    const yearCoherent = year
+      ? results.filter((m) => !m.year || Math.abs(parseInt(m.year, 10) - parseInt(year, 10)) <= 2)
+      : results;
+
     if (year) {
       // Tier 1: exact normalised title + year
-      const hit = results.find(
+      const hit = yearCoherent.find(
         (m) => normaliseTitle(m.title) === normTarget && m.year === year,
       );
       if (hit) return hit;
@@ -213,18 +221,19 @@ async function findMovieByTitle(title: string, year?: string, imdbId?: string): 
       // Using find() would return the FIRST overlap result (search rank order),
       // which can be wrong when the site returns loosely-related titles first.
       // Instead, score all candidates and pick the highest-scoring one.
-      const tier2 = results
+      const tier2 = yearCoherent
         .filter((m) => wordOverlap(title, m.title) && m.year === year)
         .map((m) => ({ m, score: titleSimilarityScore(title, m.title) }))
         .sort((a, b) => b.score - a.score);
       if (tier2.length && tier2[0]!.score >= 0.4) return tier2[0]!.m;
     }
-    // Tier 3: exact normalised title (no year)
-    const exact = results.find((m) => normaliseTitle(m.title) === normTarget);
+    // Tier 3: exact normalised title — use year-coherent pool so a same-name
+    // Hindi/regional show from a different year doesn't shadow the real result.
+    const exact = yearCoherent.find((m) => normaliseTitle(m.title) === normTarget);
     if (exact) return exact;
-    // Tier 4: best-scored word-overlap candidate (no year) — weakest fallback.
+    // Tier 4: best-scored word-overlap candidate — weakest fallback.
     // Must score at least 0.5 to prevent mismatches like "Office" → "Office India".
-    const tier4 = results
+    const tier4 = yearCoherent
       .filter((m) => wordOverlap(title, m.title))
       .map((m) => ({ m, score: titleSimilarityScore(title, m.title) }))
       .sort((a, b) => b.score - a.score);
@@ -588,7 +597,20 @@ export async function getStreams(
       return [];
     }
 
-    logger.info({ imdbId, title: meta.title, matched: siteEntry.title }, "HindMoviez: matched");
+    // Post-match IMDB cross-check: if the list page embedded an IMDB ID and it
+    // differs from the requested one, we have definitively matched the wrong show
+    // (e.g. a Hindi "Friends" whose list page links to a different tt ID).
+    // When the site has no IMDB ID on the list page we fall back to year-coherent
+    // title matching done in findMovieByTitle.
+    if (siteEntry.imdbId && siteEntry.imdbId !== imdbId) {
+      logger.warn(
+        { imdbId, siteImdbId: siteEntry.imdbId, requestedTitle: meta.title, matchedTitle: siteEntry.title },
+        "HindMoviez: list-page IMDB ID mismatch — rejecting match",
+      );
+      return [];
+    }
+
+    logger.info({ imdbId, title: meta.title, matched: siteEntry.title, siteImdbId: siteEntry.imdbId ?? "none" }, "HindMoviez: matched");
 
     const streams: StremioStream[] = [];
 

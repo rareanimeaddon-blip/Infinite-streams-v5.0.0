@@ -396,6 +396,23 @@ async function findCastleTvMatch(
       type ScoredRow = { row: SearchResultItem; baseScore: number; finalScore: number };
       const scored: ScoredRow[] = rows
         .filter((r) => mapMovieType(r.movieType) === type)
+        .filter((r) => {
+          // Hard year gate: when the requested year is known, exclude candidates
+          // whose publishTime resolves to a year more than 2 years away.
+          // This is the primary defence against same-name shows from different
+          // regions/eras (e.g. "Friends" 1994 US vs "Friends" 2019 Hindi show).
+          // Candidates with no publishTime are kept (can't verify).
+          if (!year || !r.publishTime) return true;
+          const rowYear = new Date(r.publishTime).getFullYear();
+          if (Math.abs(rowYear - year) > 2) {
+            logger.info(
+              { title, candidateTitle: r.title, candidateYear: rowYear, requestedYear: year },
+              "castle-tv: hard-year-filter — candidate excluded",
+            );
+            return false;
+          }
+          return true;
+        })
         .map((row) => {
           // Always score against the ORIGINAL title (not the query variant)
           const baseScore = strictTitleScore(row.title ?? "", title);

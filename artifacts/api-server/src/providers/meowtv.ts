@@ -42,6 +42,7 @@ export interface MeowStreamData {
 export interface MeowStream {
   name: string;
   title: string;
+  description?: string;
   url: string;
   behaviorHints: Record<string, unknown>;
   /** Raw stream data — used by the proxy for refresh-on-404 */
@@ -340,6 +341,96 @@ export function makeMeowBinaryProxyUrl(
   return `${proxyBase}/meow-proxy?u=${u}${h}`;
 }
 
+// ─── URL-title mismatch guard ─────────────────────────────────────────────────
+//
+// Some MeowTV backend servers have wrong TMDB→content catalog mappings and
+// return a completely different show (e.g. "SchoolFriends" for "Friends").
+// Since the stream URL often embeds the slug of the actual content being served
+// (e.g.  /SchoolFriends/S01E01/ or /Friends/S01E01/), we can extract that slug
+// and compare it against the title we expect.  When the URL slug is clearly a
+// different show we drop the stream entirely.
+//
+// Matching rules (all case-insensitive, after CamelCase / separator expansion):
+//   1. Every significant word (≥4 chars) in the requested title MUST appear in
+//      the URL slug words.  Missing → different show.
+//   2. Every extra significant word in the URL slug that does NOT appear in the
+//      requested title AND is not a generic filler term (season, complete, hindi,
+//      english, dubbed, part, web, hd …) triggers a rejection.
+//      e.g. "school" in SchoolFriends is not in {"friends"} → reject.
+//
+// Returns true when the URL looks like it belongs to a different show.
+
+const URL_TITLE_FILLER = new Set([
+  "season","complete","hindi","english","dubbed","part","web","hd","series",
+  "download","full","episodes","episodes","special","episode","collection",
+  "remastered","extended","edition","version","theatrical","directors","cut",
+]);
+
+function urlTitleMismatch(url: string, requestedTitle: string): boolean {
+  // Extract the path (drop query string)
+  const pathParts = (url.split("?")[0] ?? "").split("/").filter(Boolean);
+
+  // Find the segment immediately before a /S{n}E{n}/ marker
+  let titleSlug: string | null = null;
+  for (let i = 1; i < pathParts.length; i++) {
+    if (/^[Ss]\d{2}[Ee]\d{2}/.test(pathParts[i]!)) {
+      titleSlug = pathParts[i - 1] ?? null;
+      break;
+    }
+  }
+  // Fallback: for movie URLs or unconventional paths look for the last non-trivial
+  // alphabetic segment (skipping short tokens like UUIDs, resolutions, codecs…).
+  if (!titleSlug) {
+    for (let i = pathParts.length - 1; i >= 0; i--) {
+      const seg = pathParts[i]!;
+      if (/^[a-zA-Z]{4,}/.test(seg) && !/^\d+p$/.test(seg)) {
+        titleSlug = seg;
+        break;
+      }
+    }
+  }
+  if (!titleSlug) return false; // can't extract slug → don't reject
+
+  // Tokenise: split CamelCase, dots, hyphens, underscores → lowercase words ≥4 chars
+  const tokenise = (s: string) =>
+    s
+      .replace(/([a-z])([A-Z])/g, "$1 $2")
+      .replace(/[._\-+]/g, " ")
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, "")
+      .split(/\s+/)
+      .filter((w) => w.length >= 4);
+
+  const reqWords  = new Set(tokenise(requestedTitle));
+  const slugWords = tokenise(titleSlug);
+
+  if (slugWords.length === 0 || reqWords.size === 0) return false;
+
+  // Rule 1: every requested word must be present in the slug
+  for (const w of reqWords) {
+    if (!slugWords.includes(w)) {
+      logger.info(
+        { titleSlug, requestedTitle, missingWord: w },
+        "MeowTV: url-title-guard rule1 — requested word absent from slug",
+      );
+      return true;
+    }
+  }
+
+  // Rule 2: slug must not carry extra significant words absent from requested title
+  for (const w of slugWords) {
+    if (!reqWords.has(w) && !URL_TITLE_FILLER.has(w)) {
+      logger.info(
+        { titleSlug, requestedTitle, extraWord: w },
+        "MeowTV: url-title-guard rule2 — slug has extra word not in requested title",
+      );
+      return true;
+    }
+  }
+
+  return false;
+}
+
 // ─── Main provider function ───────────────────────────────────────────────────
 
 export async function getMeowTvStreams(
@@ -348,6 +439,7 @@ export async function getMeowTvStreams(
   season: number | undefined,
   episode: number | undefined,
   proxyBase: string,
+  requestedTitle?: string,
 ): Promise<MeowStream[]> {
   if (!imdbId.startsWith("tt")) return [];
 
@@ -376,6 +468,16 @@ export async function getMeowTvStreams(
 
     // Skip decoy URLs (intentional anti-scraping fallback from WASM)
     if (data.url.includes("decoy.invalid")) continue;
+
+    // URL-title guard: if the stream URL embeds a content slug that belongs to
+    // a different show (e.g. /SchoolFriends/ when Friends was requested), drop it.
+    if (requestedTitle && urlTitleMismatch(data.url, requestedTitle)) {
+      logger.warn(
+        { label, serverId, url: data.url.slice(0, 120), requestedTitle },
+        "MeowTV: url-title-guard — dropping stream (wrong content slug in URL)",
+      );
+      continue;
+    }
 
     let streamUrl: string;
     let behaviorHints: Record<string, unknown>;
