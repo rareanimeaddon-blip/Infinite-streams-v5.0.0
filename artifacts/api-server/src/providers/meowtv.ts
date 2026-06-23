@@ -370,7 +370,13 @@ function urlTitleMismatch(url: string, requestedTitle: string): boolean {
   // Extract the path (drop query string)
   const pathParts = (url.split("?")[0] ?? "").split("/").filter(Boolean);
 
-  // Find the segment immediately before a /S{n}E{n}/ marker
+  // Only extract a title slug when there is a clear /S{n}E{n}/ episode marker in the
+  // URL path.  The segment immediately BEFORE the marker is the show title slug
+  // (e.g. /SchoolFriends/S01E01/ → "SchoolFriends").
+  //
+  // We deliberately do NOT fall back to guessing a title from arbitrary path
+  // segments — CDN URLs like /e/FQBObldSXE5cXFA/master.m3u8 use opaque hash IDs
+  // and have no embedded title; a fallback would produce false positives.
   let titleSlug: string | null = null;
   for (let i = 1; i < pathParts.length; i++) {
     if (/^[Ss]\d{2}[Ee]\d{2}/.test(pathParts[i]!)) {
@@ -378,18 +384,7 @@ function urlTitleMismatch(url: string, requestedTitle: string): boolean {
       break;
     }
   }
-  // Fallback: for movie URLs or unconventional paths look for the last non-trivial
-  // alphabetic segment (skipping short tokens like UUIDs, resolutions, codecs…).
-  if (!titleSlug) {
-    for (let i = pathParts.length - 1; i >= 0; i--) {
-      const seg = pathParts[i]!;
-      if (/^[a-zA-Z]{4,}/.test(seg) && !/^\d+p$/.test(seg)) {
-        titleSlug = seg;
-        break;
-      }
-    }
-  }
-  if (!titleSlug) return false; // can't extract slug → don't reject
+  if (!titleSlug) return false; // no recognisable title slug → pass through
 
   // Tokenise: split CamelCase, dots, hyphens, underscores → lowercase words ≥4 chars
   const tokenise = (s: string) =>
