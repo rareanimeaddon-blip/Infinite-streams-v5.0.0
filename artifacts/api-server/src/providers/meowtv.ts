@@ -12,7 +12,6 @@ export const MEOW_SERVERS = [
   { id: "pseudo",     label: "Pseudo" },
   { id: "tik",        label: "TCloud" },
   { id: "ipcloud",    label: "IPCloud" },
-  { id: "v4:English", label: "English" },
   { id: "v5:Hindi",   label: "Hindi" },
   { id: "v4:Hindi",   label: "Hindi v2" },
   { id: "v6:Hindi",   label: "Hindi v3" },
