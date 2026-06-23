@@ -191,24 +191,18 @@ export async function fetchStreamflixStreams(
     } catch (err) {
       logger.debug(
         { err, movieKey: match.moviekey, season },
-        "streamflix: firebase fetch failed, using fallback url",
+        "streamflix: firebase fetch failed — no stream returned",
       );
     }
 
-    const base = bases[0];
-    const fallbackUrl = `${base}tv/${match.moviekey}/s${season}/episode${episode}.mkv`;
+    // No episode data in Firebase for this season/episode — return nothing.
+    // A guessed fallback URL (tv/{key}/s{n}/episode{n}.mkv) produces 404s on
+    // the CDN for shows whose season is not yet in the StreamFlix database.
     logger.info(
-      { tmdbId, season, episode },
-      "streamflix: using fallback tv stream url",
+      { tmdbId, season, episode, movieKey: match.moviekey },
+      "streamflix: no firebase episode data for this season — skipping",
     );
-    return [
-      {
-        url: fallbackUrl,
-        name: "StreamFlix",
-        title: `StreamFlix | ${match.moviename} S${season}E${episode}`,
-        behaviorHints: { notWebReady: true },
-      },
-    ];
+    return [];
   } catch (err) {
     logger.warn({ err, tmdbId }, "streamflix: provider error");
     return [];
