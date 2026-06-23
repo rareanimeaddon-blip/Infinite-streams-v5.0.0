@@ -639,6 +639,18 @@ async function getHDHub4USeriesStreams(
     if (typed.length === 0) {
       logger.info({ title, season, episode, bestType: best.r.type, score: best.score }, "HDHub4U: series type-fallback match");
     }
+    // Season guard: the Typesense search may return the only available page for a
+    // show even when it covers a different season (e.g. "from-season-3-..." for a
+    // season-4 request).  Extract the season number from the URL slug and reject
+    // pages that clearly belong to a different season.
+    const urlSeasonMatch = /season[_-]?(\d+)/i.exec(best.r.url);
+    if (urlSeasonMatch) {
+      const urlSeason = parseInt(urlSeasonMatch[1]!, 10);
+      if (urlSeason !== season) {
+        logger.info({ title, season, episode, urlSeason, url: best.r.url }, "HDHub4U series: season mismatch in URL — skipping");
+        return [];
+      }
+    }
     // Pass imdbId so extractStreams can verify the page's embedded IMDB ID matches
     const streams = await hdhub4u.extractStreams(best.r.url, season, episode, imdbId);
     logger.info({ title, season, episode, url: best.r.url, streams: streams.length }, "HDHub4U series: streams extracted");
@@ -701,6 +713,16 @@ async function getFourkdHubSeriesStreams(
       .sort((a, b) => b.score - a.score);
     const best = scored[0];
     if (!best || best.score < 0.5) return [];
+    // Season guard: same as HDHub4U — reject pages whose URL slug embeds a
+    // different season number than the one requested.
+    const fkUrlSeasonMatch = /season[_-]?(\d+)/i.exec(best.r.url);
+    if (fkUrlSeasonMatch) {
+      const fkUrlSeason = parseInt(fkUrlSeasonMatch[1]!, 10);
+      if (fkUrlSeason !== season) {
+        logger.info({ title, season, episode, urlSeason: fkUrlSeason, url: best.r.url }, "4KHDHub series: season mismatch in URL — skipping");
+        return [];
+      }
+    }
     // Pass imdbId so extractStreams can verify the page's embedded IMDB ID matches
     const streams = await fourkdhub.extractStreams(best.r.url, season, episode, imdbId);
     const fk4sResolvedTitle = best.r.title;

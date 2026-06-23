@@ -439,6 +439,24 @@ export async function fetchDahmerStreams(
       if (epFiltered.length) links = epFiltered;
     }
 
+    // ── Step 4b: season guard — reject files whose filename embeds a different
+    //    season number (e.g. FROM.S03E08.mkv found inside the Season 4 folder).
+    //    Files without a S{n}E{n} pattern in the name are left through.
+    if (isTv && season !== null) {
+      const snFiltered = links.filter((p) => {
+        const snMatch = /[Ss](\d{1,2})[Ee]/i.exec(p.text);
+        if (!snMatch) return true; // no embedded season — keep
+        return parseInt(snMatch[1]!, 10) === season;
+      });
+      if (snFiltered.length < links.length) {
+        logger.info(
+          { title, season, episode, before: links.length, after: snFiltered.length },
+          "dahmermovies: season-filename guard — removed wrong-season files",
+        );
+        links = snFiltered; // may become empty → returns no streams (correct)
+      }
+    }
+
     // ── Step 5: size filter (exclude files > 23 GB) ───────────────────────────
     links = links.filter((p) => {
       const gb = parseSizeGB(p.size);
