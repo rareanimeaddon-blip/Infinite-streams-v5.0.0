@@ -30,7 +30,6 @@ const BROWSER_UA =
 
 const VIDLINK_HEADERS: Record<string, string> = {
   "User-Agent": BROWSER_UA,
-  "Connection": "keep-alive",
   "Referer":    "https://vidlink.pro/",
   "Origin":     "https://vidlink.pro",
 };
@@ -39,7 +38,6 @@ const FETCH_HEADERS: Record<string, string> = {
   "User-Agent":      BROWSER_UA,
   "Accept":          "application/json,*/*",
   "Accept-Language": "en-US,en;q=0.5",
-  "Connection":      "keep-alive",
 };
 
 const QUALITY_ORDER: Record<string, number> = {
@@ -87,7 +85,6 @@ const PREFETCH_HEADERS: Record<string, string> = {
   "User-Agent":      BROWSER_UA,
   "Accept":          "*/*",
   "Accept-Language": "en-US,en;q=0.5",
-  "Connection":      "keep-alive",
 };
 
 interface CacheEntry {
@@ -153,7 +150,7 @@ interface M3U8CacheEntry {
   cachedAt:     number;
 }
 
-const M3U8_CACHE_TTL  = 10 * 60 * 1000;
+const M3U8_CACHE_TTL  = 28 * 60 * 1000; // outlast the 30-min stream cache
 const m3u8Cache       = new Map<string, M3U8CacheEntry>();
 const m3u8InFlight    = new Map<string, Promise<M3U8CacheEntry>>();
 
@@ -220,6 +217,25 @@ function extractUrlHeaders(rawUrl: string): Record<string, string> {
     if (hParam) return JSON.parse(hParam) as Record<string, string>;
   } catch { /* ignore */ }
   return {};
+}
+
+/** Hop-by-hop headers that must never be forwarded in proxy fetch calls. */
+const HOP_BY_HOP = new Set([
+  "connection", "keep-alive", "transfer-encoding", "te",
+  "upgrade", "proxy-authorization", "proxy-authenticate", "trailer",
+]);
+
+/** Merge header objects with case-insensitive deduplication (last writer wins).
+ *  Strips hop-by-hop headers that undici / fetch rejects when set manually. */
+function mergeHeaders(...maps: Record<string, string>[]): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const map of maps) {
+    for (const [k, v] of Object.entries(map)) {
+      const lk = k.toLowerCase();
+      if (!HOP_BY_HOP.has(lk)) result[lk] = v;
+    }
+  }
+  return result;
 }
 
 async function makeRequest(url: string, options: RequestInit = {}): Promise<globalThis.Response> {
@@ -380,41 +396,6 @@ function rewriteM3U8WithSession(
   return { rewritten, sid, cdnSegs };
 }
 
-async function fetchM3U8Streams(
-  playlistUrl: string,
-  mediaInfo: MediaInfo,
-  subtitles: SubtitleEntry[],
-  proxyBase: string,
-): Promise<VLStream[]> {
-  const cdnHeaders = { ...VIDLINK_HEADERS, ...extractUrlHeaders(playlistUrl) };
-  try {
-    const response = await makeRequest(playlistUrl, { headers: cdnHeaders });
-    const content  = await (response as globalThis.Response).text();
-    const variants = parseM3U8Variants(content, playlistUrl);
-    if (variants.length === 0) {
-      return [{
-        name: "VidLink • Auto", title: buildTitle(mediaInfo),
-        url: buildM3U8ProxyUrl(proxyBase, playlistUrl, cdnHeaders),
-        quality: "Auto", streamHeaders: {}, subtitles,
-      }];
-    }
-    return variants.map((v) => {
-      const quality        = getQualityFromResolution(v.resolution);
-      const variantHeaders = { ...cdnHeaders, ...extractUrlHeaders(v.url) };
-      return {
-        name: `VidLink • ${quality}`, title: buildTitle(mediaInfo),
-        url: buildM3U8ProxyUrl(proxyBase, v.url, variantHeaders),
-        quality, streamHeaders: {}, subtitles,
-      };
-    });
-  } catch {
-    return [{
-      name: "VidLink • Auto", title: buildTitle(mediaInfo),
-      url: buildM3U8ProxyUrl(proxyBase, playlistUrl, cdnHeaders),
-      quality: "Auto", streamHeaders: {}, subtitles,
-    }];
-  }
-}
 
 function buildTitle(mediaInfo: MediaInfo): string {
   if (mediaInfo.mediaType === "tv" && mediaInfo.season && mediaInfo.episode) {
@@ -514,24 +495,52 @@ export async function getVidlinkStreams(
   const playlists     = raw.filter((s): s is PlaylistRef => "_isPlaylist" in s);
   const directs       = raw.filter((s): s is VLStream   => !("_isPlaylist" in s));
 
-  const proxiedDirects: VLStream[] = directs.map((s) => {
-    const cdnHeaders = { ...s.streamHeaders, ...extractUrlHeaders(s.url) };
-    return { ...s, url: buildM3U8ProxyUrl(proxyBase, s.url, cdnHeaders), streamHeaders: {} };
+  // VidLink CDN proxy URLs (?auth=…) expire within seconds and are only accessible
+  // from VidLink's own servers — our Replit IP is blocked.  Return CDN URLs *directly*
+  // to Stremio with proxyHeaders so Stremio's ExoPlayer fetches them from the user's
+  // device (user IP is not blocked; auth token is still fresh within ~1 s of stream
+  // list delivery).  No M3U8 proxy involved.
+
+  // "direct" quality URLs (stream.qualities → individual HLS/MP4 per quality)
+  const directStreams: VLStream[] = directs.map((s) => {
+    const cdnHeaders = mergeHeaders(s.streamHeaders, extractUrlHeaders(s.url));
+    return { ...s, streamHeaders: cdnHeaders };
   });
 
-  const parsedPlaylists = await Promise.all(
-    playlists.map((p) => fetchM3U8Streams(p.url, p.mediaInfo, p.subtitles, proxyBase)),
-  );
+  // "playlist" URLs (stream.playlist → master M3U8 URL)
+  // We do NOT fetch the master M3U8 here — it would 403 from our server.
+  // Return the playlist URL directly; Stremio fetches it with proxyHeaders.
+  const playlistStreams: VLStream[] = playlists.map((p) => {
+    const cdnHeaders = mergeHeaders(VIDLINK_HEADERS, extractUrlHeaders(p.url));
+    return {
+      name:          `VidLink • Auto`,
+      title:         buildTitle(p.mediaInfo),
+      url:           p.url,
+      quality:       "Auto",
+      streamHeaders: cdnHeaders,
+      subtitles:     p.subtitles,
+    };
+  });
 
-  const allStreams: VLStream[] = [...proxiedDirects, ...parsedPlaylists.flat()];
+  const allStreams: VLStream[] = [...directStreams, ...playlistStreams];
   allStreams.sort((a, b) => (QUALITY_ORDER[b.quality] ?? -3) - (QUALITY_ORDER[a.quality] ?? -3));
 
-  // Return Stremio-compatible stream objects
+  // notWebReady: true  — use ExoPlayer (native HLS), not JS/web player.
+  // proxyHeaders       — sent by Stremio when fetching each CDN URL + its segments.
   return allStreams.map((s) => ({
     name:  s.name,
     title: s.title,
     url:   s.url,
-    behaviorHints: { notWebReady: false, bingeGroup: "vidlink" },
+    behaviorHints: {
+      notWebReady: true,
+      bingeGroup:  "vidlink",
+      proxyHeaders: {
+        request: {
+          "Referer": "https://vidlink.pro/",
+          "Origin":  "https://vidlink.pro",
+        },
+      },
+    },
     subtitles: s.subtitles?.map((sub) => ({
       url:  sub.url,
       lang: sub.language,
@@ -564,10 +573,10 @@ async function doFetchAndRewriteM3U8(
 ): Promise<M3U8CacheEntry> {
   const fetchHeaders: Record<string, string> = {
     "User-Agent": BROWSER_UA, "Accept": "*/*",
-    "Accept-Language": "en-US,en;q=0.5", "Connection": "keep-alive",
+    "Accept-Language": "en-US,en;q=0.5",
     ...extraHeaders,
   };
-  const upstream = await fetch(targetUrl, { headers: fetchHeaders, keepalive: true });
+  const upstream = await fetch(targetUrl, { headers: fetchHeaders });
   if (!upstream.ok) throw new Error(`Upstream ${upstream.status}: ${upstream.statusText}`);
 
   const contentType = upstream.headers.get("content-type") || "application/octet-stream";
@@ -611,11 +620,11 @@ async function handleM3U8Proxy(req: Request, res: Response): Promise<void> {
   if (!isM3U8Req) {
     const fetchHeaders: Record<string, string> = {
       "User-Agent": BROWSER_UA, "Accept": "*/*",
-      "Accept-Language": "en-US,en;q=0.5", "Connection": "keep-alive",
+      "Accept-Language": "en-US,en;q=0.5",
       ...extraHeaders,
     };
     try {
-      const upstream = await fetch(targetUrl, { headers: fetchHeaders, keepalive: true });
+      const upstream = await fetch(targetUrl, { headers: fetchHeaders });
       if (!upstream.ok) { res.status(upstream.status).send(`Upstream error: ${upstream.statusText}`); return; }
       setCors(res);
       const ct = upstream.headers.get("content-type");
@@ -639,7 +648,7 @@ async function handleM3U8Proxy(req: Request, res: Response): Promise<void> {
   }
 
   const cacheKey  = m3u8CacheKey(targetUrl, hParam);
-  const proxyBase = getPublicBase(req);
+  const proxyBase = getPublicBase(req) + (process.env["BASE_PATH"] ?? "/api");
 
   const cached = m3u8Cache.get(cacheKey);
   if (cached && Date.now() - cached.cachedAt < M3U8_CACHE_TTL) {
@@ -656,7 +665,9 @@ async function handleM3U8Proxy(req: Request, res: Response): Promise<void> {
   if (!inFlight) {
     inFlight = doFetchAndRewriteM3U8(targetUrl, hParam, extraHeaders, proxyBase, cacheKey);
     m3u8InFlight.set(cacheKey, inFlight);
-    inFlight.finally(() => m3u8InFlight.delete(cacheKey));
+    // .catch() here silences the unhandled-rejection on the cleanup promise;
+    // the real error is caught by the awaiting caller below.
+    inFlight.finally(() => m3u8InFlight.delete(cacheKey)).catch(() => {});
   }
 
   try {
@@ -713,7 +724,7 @@ vidlinkRouter.get("/vidlink/seg/:sid/:idx", async (req, res): Promise<void> => {
   const cdnUrl = session.segs[idx]!;
   const fetchHeaders: Record<string, string> = {
     "User-Agent": BROWSER_UA, "Accept": "*/*",
-    "Accept-Language": "en-US,en;q=0.5", "Connection": "keep-alive",
+    "Accept-Language": "en-US,en;q=0.5",
     ...session.headers,
   };
 
@@ -779,7 +790,7 @@ vidlinkRouter.head("/vidlink/seg/:sid/:idx", async (req, res): Promise<void> => 
   try {
     const cdnUrl = session.segs[idx]!;
     const headHeaders: Record<string, string> = {
-      "User-Agent": BROWSER_UA, "Accept": "*/*", "Connection": "keep-alive",
+      "User-Agent": BROWSER_UA, "Accept": "*/*",
       ...session.headers,
     };
     const upstream = await fetch(cdnUrl, { method: "HEAD", headers: headHeaders });

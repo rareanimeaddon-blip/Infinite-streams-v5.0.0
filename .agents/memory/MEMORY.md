@@ -1,2 +1,3 @@
 - [MeowTV WASM decryption](meowtv-wasm-decryption.md) — scheme changed from SHA-256 XOR to AES-CTR-encrypted WASM; re-derivation steps + critical pitfall for embedding large base64 strings.
 - [Replit path-based port routing](replit-port-routing.md) — `/api/*` routes to port 8080, not 5000; app must bind both or manifest returns 502.
+- [VidLink CDN auth strategy](vidlink-cdn-auth.md) — CDN proxy URLs have short-lived auth tokens; bypass server-side proxy and return URLs directly with proxyHeaders.
