@@ -210,7 +210,7 @@ function getPublicBase(req: Request): string {
 /** Proxy URL uses /vidlink/ prefix — isolated from all other provider routes. */
 function buildM3U8ProxyUrl(base: string, targetUrl: string, headers: Record<string, string>): string {
   const h = Buffer.from(JSON.stringify(headers)).toString("base64url");
-  return `${base}/api/vidlink/hls.m3u8?url=${encodeURIComponent(targetUrl)}&h=${h}`;
+  return `${base}/vidlink/hls.m3u8?url=${encodeURIComponent(targetUrl)}&h=${h}`;
 }
 
 function extractUrlHeaders(rawUrl: string): Record<string, string> {
@@ -374,7 +374,7 @@ function rewriteM3U8WithSession(
     if (absolute.includes(".m3u8")) {
       return buildM3U8ProxyUrl(proxyBase, absolute, cdnHeaders);
     }
-    return `${proxyBase}/api/vidlink/seg/${sid}/${segIdx++}`;
+    return `${proxyBase}/vidlink/seg/${sid}/${segIdx++}`;
   }).join("\n");
 
   return { rewritten, sid, cdnSegs };
