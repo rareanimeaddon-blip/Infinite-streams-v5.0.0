@@ -233,21 +233,49 @@ async function makeRequest(url: string, options: RequestInit = {}): Promise<glob
 // TMDB / ENCRYPTION
 // ════════════════════════════════════════════════════════════════════════════
 
-async function imdbToTmdb(imdbId: string, type: string): Promise<{ tmdbId: string; title: string; year: string | undefined }> {
-  const url = `https://api.themoviedb.org/3/find/${imdbId}?api_key=${TMDB_API_KEY}&external_source=imdb_id`;
-  const response = await makeRequest(url);
-  const data = (await response.json() as unknown) as Record<string, unknown[]>;
-  const result = (type === "movie" ? data["movie_results"] : data["tv_results"])?.[0] as Record<string, unknown> | undefined;
-  if (!result) throw new Error(`TMDB lookup failed for ${imdbId} (type: ${type})`);
-  const tmdbId = String(result["id"]);
-  const title  = type === "movie"
-    ? String(result["title"] || result["original_title"] || "Unknown")
-    : String(result["name"]  || result["original_name"]  || "Unknown");
-  const rawDate = type === "movie"
-    ? String(result["release_date"]   || "")
-    : String(result["first_air_date"] || "");
-  const year = rawDate ? rawDate.substring(0, 4) : undefined;
-  return { tmdbId, title, year };
+async function imdbToTmdb(
+  imdbId: string,
+  type: string,
+  fallbackTitle?: string,
+): Promise<{ tmdbId: string; title: string; year: string | undefined }> {
+  // Primary: TMDB /find/ by IMDB ID
+  const findUrl = `https://api.themoviedb.org/3/find/${imdbId}?api_key=${TMDB_API_KEY}&external_source=imdb_id`;
+  const findResp = await makeRequest(findUrl);
+  const findData = (await findResp.json() as unknown) as Record<string, unknown[]>;
+  const primary = (type === "movie" ? findData["movie_results"] : findData["tv_results"])?.[0] as Record<string, unknown> | undefined;
+
+  if (primary) {
+    const tmdbId = String(primary["id"]);
+    const title  = type === "movie"
+      ? String(primary["title"] || primary["original_title"] || "Unknown")
+      : String(primary["name"]  || primary["original_name"]  || "Unknown");
+    const rawDate = type === "movie"
+      ? String(primary["release_date"]   || "")
+      : String(primary["first_air_date"] || "");
+    return { tmdbId, title, year: rawDate ? rawDate.substring(0, 4) : undefined };
+  }
+
+  // Fallback: title search (handles new releases not yet linked in TMDB by IMDB ID)
+  if (fallbackTitle) {
+    const searchType = type === "movie" ? "movie" : "tv";
+    const searchUrl = `https://api.themoviedb.org/3/search/${searchType}?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(fallbackTitle)}&include_adult=false`;
+    const searchResp = await makeRequest(searchUrl);
+    const searchData = (await searchResp.json() as unknown) as { results?: Record<string, unknown>[] };
+    const hit = searchData.results?.[0] as Record<string, unknown> | undefined;
+    if (hit) {
+      const tmdbId = String(hit["id"]);
+      const title  = type === "movie"
+        ? String(hit["title"] || hit["original_title"] || fallbackTitle)
+        : String(hit["name"]  || hit["original_name"]  || fallbackTitle);
+      const rawDate = type === "movie"
+        ? String(hit["release_date"]   || "")
+        : String(hit["first_air_date"] || "");
+      logger.info({ imdbId, fallbackTitle, tmdbId }, "VidLink: IMDB→TMDB fallback via title search");
+      return { tmdbId, title, year: rawDate ? rawDate.substring(0, 4) : undefined };
+    }
+  }
+
+  throw new Error(`VidLink: TMDB lookup failed for ${imdbId} (type: ${type}, title: ${fallbackTitle ?? "unknown"})`);
 }
 
 async function encryptTmdbId(tmdbId: string): Promise<string> {
@@ -468,8 +496,9 @@ export async function getVidlinkStreams(
   season: number | undefined,
   episode: number | undefined,
   proxyBase: string,
+  fallbackTitle?: string,
 ): Promise<Record<string, unknown>[]> {
-  const { tmdbId, title, year } = await imdbToTmdb(imdbId, type);
+  const { tmdbId, title, year } = await imdbToTmdb(imdbId, type, fallbackTitle);
   const encryptedId = await encryptTmdbId(tmdbId);
 
   const vidlinkUrl = type === "series" && season && episode
