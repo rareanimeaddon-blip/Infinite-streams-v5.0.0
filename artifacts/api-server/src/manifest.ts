@@ -2,18 +2,19 @@ export const ADDON_ID = "community.infinitestreams.stremio";
 
 export const manifest = {
   id: ADDON_ID,
-  version: "8.5.0",
+  version: "8.6.0",
   name: "INFINITE STREAMS",
   description:
-    "♾️ 14 providers. One addon. Zero compromise.\n" +
+    "♾️ 15 providers. One addon. Zero compromise.\n" +
     "🎌 Kartoons — 479 shows & 515 movies: Hindi/English anime & cartoons.\n" +
     "⛩️ AnimeSalt — Hindi, English & Japanese multi-audio anime HLS.\n" +
     "🌙 RareAnime India — Hindi & Tamil dubbed anime (rareanimes.buzz + animetoonhindi).\n" +
     "🇮🇳 AnimeDekho — Hindi/Tamil/Telugu dubbed anime via 15+ extractors.\n" +
     "🌐 NetMirror — 1080p mirrors of Netflix, Prime Video & Hotstar.\n" +
     "🎬 StreamFlix — Multi-audio & multilingual streaming library.\n" +
-    "🏰 Castle TV — Tamil/Hindi/English multi-language streams.\n" +
     "📺 DooFlix — HLS streams via xpass.top matched by IMDB ID.\n" +
+    "🏰 Castle TV — Tamil/Hindi/English multi-language streams.\n" +
+    "🔗 VidLink — 4K/1080p/720p streams via VidLink.pro with session-based HLS proxy.\n" +
     "🍿 MovieBox — Multi-audio: Hindi, Bengali, English & more.\n" +
     "🐱 MeowTV — Lynx, Pseudo, TCloud, IPCloud & Hindi servers (meowtv.ru).\n" +
     "💀 DahmerMovies — High-quality 1080p/4K direct file streams.\n" +

@@ -12,7 +12,7 @@ A Stremio addon (v8.3.0) that aggregates streams from 12 providers into a single
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
 - API: Express 5, esbuild (fully self-contained ESM bundle)
-- 14 stream providers: Kartoons, AnimeSalt, RareAnime, AnimeDekho, NetMirror, StreamFlix, CastleTV, DooFlix, MovieBox, MeowTV, DahmerMovies, HindMoviez, 4KHDHub, HDHub4U
+- 15 stream providers: Kartoons, AnimeSalt, RareAnime, AnimeDekho, NetMirror, StreamFlix, DooFlix, CastleTV, VidLink, MovieBox, MeowTV, DahmerMovies, HindMoviez, 4KHDHub, HDHub4U
 - Title matching: Typesense (HDHub4U) + custom `titleSimilarityScore` (Jaccard + length penalty)
 - Health endpoint: `GET /api/healthz`
 
@@ -30,6 +30,7 @@ A Stremio addon (v8.3.0) that aggregates streams from 12 providers into a single
 
 ## Version history
 
+- v8.6.0 — Added VidLink as 15th provider (index 8); swapped dooflix↔castletv order (dooflix=6, castletv=7); provider mask is now 15 chars ("111111111111111"). VidLink proxy routes: `/api/vidlink/hls.m3u8`, `/api/vidlink/seg/:sid/:idx` (isolated prefix).
 - v8.5.0 — Added Kartoons as 14th provider (index 0); provider mask is now 14 chars ("11111111111111"). 3 new catalogs: kartoons_anime, kartoons_cartoons, kartoons_movies. `kartoons:` added to idPrefixes/resources.
 
 ## Architecture decisions
