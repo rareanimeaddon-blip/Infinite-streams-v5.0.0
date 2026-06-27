@@ -81,7 +81,7 @@ async function fetchPlaylistStreams(
         name: `DooFlix\n${label}`,
         title: `▶ ${label} · HLS`,
         url: encodeHlsProxyUrl(proxyBase, src.file, embedUrl),
-        behaviorHints: { notWebReady: false },
+        behaviorHints: { notWebReady: true },
       });
     }
   }
