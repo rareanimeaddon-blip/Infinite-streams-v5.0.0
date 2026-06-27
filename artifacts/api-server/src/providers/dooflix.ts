@@ -2,11 +2,16 @@ import { logger } from "../lib/logger.js";
 
 const XPASS_BASE = "https://play.xpass.top";
 const STREAM_REFERER = "https://streamsrcs.2embed.cc/";
-const HEADERS = {
+const EMBED_HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
   Accept: "*/*",
   Referer: STREAM_REFERER,
 };
+
+// tik.1x2.space / mol.1x2.space serve M3U8 playlists publicly (no Referer needed),
+// but their segment CDNs (p16-sg.tiktokcdn.com etc.) block server-side cloud IPs.
+// We return these URLs DIRECTLY so Stremio fetches them from the user's own IP.
+const DIRECT_STREAM_HOSTS = /\.(1x2\.space)/i;
 
 export interface DooflixStream {
   name: string;
@@ -36,9 +41,47 @@ async function fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Re
   }
 }
 
-function extractPlaylistPath(html: string): string | null {
-  const m = html.match(/"playlist"\s*:\s*"(\/mdata\/[^"]+)"/);
+function extractPrimaryPath(html: string): string | null {
+  const m = html.match(/"playlist"\s*:\s*"(\/[^"]+)"/);
   return m?.[1] ?? null;
+}
+
+interface BackupEntry {
+  name: string;
+  url: string;
+}
+
+/**
+ * Extract the backups array using bracket-counting so nested strings with
+ * "];"-like content don't trip up a non-greedy regex.
+ */
+function extractBackups(html: string): BackupEntry[] {
+  const si = html.indexOf("var backups=");
+  if (si < 0) return [];
+  const ai = html.indexOf("[", si);
+  if (ai < 0) return [];
+
+  let depth = 0;
+  let ae = -1;
+  for (let i = ai; i < html.length; i++) {
+    const ch = html[i];
+    if (ch === "[") depth++;
+    else if (ch === "]") {
+      if (--depth === 0) { ae = i; break; }
+    }
+  }
+  if (ae < 0) return [];
+
+  try {
+    const arr = JSON.parse(html.slice(ai, ae + 1)) as Array<{
+      name?: string; url?: string; dl?: boolean;
+    }>;
+    return arr.filter(
+      b => !b.dl && typeof b.url === "string" && typeof b.name === "string" && b.url.length > 0,
+    ).map(b => ({ name: b.name!, url: b.url! }));
+  } catch {
+    return [];
+  }
 }
 
 interface PlaylistSource {
@@ -51,9 +94,10 @@ async function fetchPlaylistStreams(
   proxyBase: string,
   playlistUrl: string,
   embedUrl: string,
+  sourceLabel?: string,
 ): Promise<DooflixStream[]> {
   const res = await fetchWithTimeout(playlistUrl, {
-    headers: { ...HEADERS, Referer: embedUrl },
+    headers: { ...EMBED_HEADERS, Referer: embedUrl },
     redirect: "follow",
   });
   if (!res.ok) return [];
@@ -65,18 +109,35 @@ async function fetchPlaylistStreams(
   for (const item of json.playlist ?? []) {
     for (const src of item.sources ?? []) {
       if (!src.file) continue;
-      // DooFlix returns /video/error (or similar) when they don't have the content.
-      // Serving this URL produces a broken stream that plays for <1 s then crashes.
+
       if (/\/video\/error\b/i.test(src.file) || src.file.trim() === "/video/error") {
         logger.debug({ file: src.file }, "DooFlix: skipping error-placeholder stream");
         continue;
       }
+
       const exp = src.file.match(/[?&]e=(\d+)/);
       if (exp && parseInt(exp[1]!, 10) < now) {
-        logger.debug({ file: src.file }, "DooFlix: skipping expired stream");
+        logger.debug({ file: src.file, exp: exp[1] }, "DooFlix: skipping expired stream");
         continue;
       }
-      const label = src.label ?? "HD";
+
+      const label = src.label ?? sourceLabel ?? "HD";
+
+      // 1x2.space M3U8 playlists are publicly accessible without Referer headers,
+      // but their segment CDNs (TikTok CDN, etc.) block Replit server IPs.
+      // Return these URLs directly so the user's player fetches segments itself.
+      if (DIRECT_STREAM_HOSTS.test(src.file)) {
+        logger.debug({ file: src.file }, "DooFlix: returning direct HLS URL (CDN blocks server IPs)");
+        streams.push({
+          name: `DooFlix\n${label}`,
+          title: `▶ ${label} · HLS`,
+          url: src.file,
+          behaviorHints: { notWebReady: true },
+        });
+        continue;
+      }
+
+      // All other sources: proxy through our /m3u8 route.
       streams.push({
         name: `DooFlix\n${label}`,
         title: `▶ ${label} · HLS`,
@@ -103,7 +164,7 @@ async function getXpassStreams(
   logger.info({ embedUrl }, "DooFlix: fetching embed");
 
   const embedRes = await fetchWithTimeout(embedUrl, {
-    headers: HEADERS,
+    headers: EMBED_HEADERS,
     redirect: "follow",
   });
   if (!embedRes.ok) {
@@ -112,16 +173,49 @@ async function getXpassStreams(
   }
 
   const html = await embedRes.text();
-  const playlistPath = extractPlaylistPath(html);
-  if (!playlistPath) {
-    logger.warn({ embedUrl }, "DooFlix: no playlist path in embed HTML");
+
+  // Build deduplicated list of playlist paths to try.
+  const tried = new Set<string>();
+  const toFetch: Array<{ path: string; label?: string }> = [];
+
+  const primaryPath = extractPrimaryPath(html);
+  if (primaryPath) {
+    tried.add(primaryPath);
+    toFetch.push({ path: primaryPath });
+  }
+
+  for (const b of extractBackups(html)) {
+    if (tried.has(b.url)) continue;
+    tried.add(b.url);
+    toFetch.push({ path: b.url, label: b.name });
+    if (toFetch.length >= 6) break;
+  }
+
+  if (toFetch.length === 0) {
+    logger.warn({ embedUrl }, "DooFlix: no playlist paths found in embed HTML");
     return [];
   }
 
-  const streams = await fetchPlaylistStreams(proxyBase, `${XPASS_BASE}${playlistPath}`, embedUrl).catch((err) => {
-    logger.warn({ err, embedUrl }, "DooFlix: playlist fetch error");
-    return [];
-  });
+  const results = await Promise.allSettled(
+    toFetch.map(({ path, label }) =>
+      fetchPlaylistStreams(proxyBase, `${XPASS_BASE}${path}`, embedUrl, label).catch(err => {
+        logger.warn({ err, path }, "DooFlix: playlist fetch error");
+        return [] as DooflixStream[];
+      }),
+    ),
+  );
+
+  // Deduplicate streams by URL.
+  const seen = new Set<string>();
+  const streams: DooflixStream[] = [];
+  for (const r of results) {
+    if (r.status !== "fulfilled") continue;
+    for (const s of r.value) {
+      if (seen.has(s.url)) continue;
+      seen.add(s.url);
+      streams.push(s);
+    }
+  }
 
   logger.info({ embedUrl, count: streams.length }, "DooFlix: streams fetched");
   return streams;

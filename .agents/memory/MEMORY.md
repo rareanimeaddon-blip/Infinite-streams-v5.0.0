@@ -2,3 +2,4 @@
 - [Replit path-based port routing](replit-port-routing.md) — `/api/*` routes to port 8080, not 5000; app must bind both or manifest returns 502.
 - [VidLink CDN auth strategy](vidlink-cdn-auth.md) — CDN proxy URLs have short-lived auth tokens; bypass server-side proxy and return URLs directly with proxyHeaders.
 - [MovieBox JWT bootstrap](moviebox-jwt-bootstrap.md) — ALL mobile API endpoints return 441 without a JWT; must bootstrap via homepage first, then cache token with 50-min TTL.
+- [DooFlix CDN strategy](dooflix-cdn-strategy.md) — 1x2.space M3U8s are public but TikTok CDN segments block cloud IPs; return those URLs direct, proxy only Cloudflare-Worker sources.
