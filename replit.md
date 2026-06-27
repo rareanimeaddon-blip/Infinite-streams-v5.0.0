@@ -1,6 +1,6 @@
 # INFINITE STREAMS
 
-A Stremio addon (v8.3.0) that aggregates streams from 12 providers into a single manifest — movies, series, and anime with Indian-language content support.
+A Stremio addon (v8.7.0) that aggregates streams from 15 providers into a single manifest — movies, series, and anime with Indian-language content support.
 
 ## Run & Operate
 
@@ -30,6 +30,7 @@ A Stremio addon (v8.3.0) that aggregates streams from 12 providers into a single
 
 ## Version history
 
+- v8.7.0 — Fixed MovieBox provider (was returning 0 streams). Root cause: mobile API requires a JWT obtained by bootstrapping via the homepage endpoint first; all other endpoints return 441 without it. Added 6-host pool, JWT caching (50 min TTL), and auto-refresh. Fixed CLIENT_INFO fields (sp_code:"40401", X-Play-Mode:"2"). Now returns multi-language streams (Hindi/Tamil/Telugu/Portuguese dubs + originals) for movies and series.
 - v8.6.0 — Added VidLink as 15th provider (index 8); swapped dooflix↔castletv order (dooflix=6, castletv=7); provider mask is now 15 chars ("111111111111111"). VidLink proxy routes: `/api/vidlink/hls.m3u8`, `/api/vidlink/seg/:sid/:idx` (isolated prefix).
 - v8.5.0 — Added Kartoons as 14th provider (index 0); provider mask is now 14 chars ("11111111111111"). 3 new catalogs: kartoons_anime, kartoons_cartoons, kartoons_movies. `kartoons:` added to idPrefixes/resources.
 

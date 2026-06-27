@@ -5,8 +5,72 @@ import {
   randomBrandModel,
 } from "./moviebox-crypto.js";
 import { logger } from "./logger.js";
-const MAIN_URL = "https://api3.aoneroom.com";
+
+// ── Host pool (api6sg.aoneroom.com is geo-blocked from Replit) ────────────────
+const HOST_POOL = [
+  "https://api6.aoneroom.com",
+  "https://api5.aoneroom.com",
+  "https://api4.aoneroom.com",
+  "https://api4sg.aoneroom.com",
+  "https://api3.aoneroom.com",
+  "https://api.inmoviebox.com",
+];
+
 const DEVICE_ID = generateDeviceId();
+
+// ── JWT token cache ───────────────────────────────────────────────────────────
+// The mobile API requires a JWT (obtained from the homepage bootstrap) in the
+// Authorization header. Without it ALL endpoints return 441 "miss token".
+let cachedToken: string | null = null;
+let tokenExpiresAt = 0;  // epoch ms
+
+async function ensureToken(): Promise<string | null> {
+  const now = Date.now();
+  if (cachedToken && now < tokenExpiresAt) return cachedToken;
+
+  // Bootstrap: call the homepage to get a fresh JWT from the x-user header.
+  for (const base of HOST_POOL) {
+    const url = `${base}/wefeed-mobile-bff/tab-operating?page=1&tabId=0&version=`;
+    const hdrs = mobileHeaders("GET", url, undefined, undefined);
+    try {
+      const r = await fetch(url, {
+        headers: hdrs,
+        signal: AbortSignal.timeout(12_000),
+      });
+      const xu = r.headers.get("x-user");
+      if (xu) {
+        const tok = tryParseXUser(xu);
+        if (tok) {
+          cachedToken = tok;
+          tokenExpiresAt = now + 50 * 60 * 1000; // 50 min TTL
+          logger.info({ host: base }, "MovieBox: bootstrapped JWT token");
+          return cachedToken;
+        }
+      }
+      // If x-user was absent, still count this as a working host
+      if (r.ok) {
+        logger.warn({ host: base }, "MovieBox: bootstrap got 200 but no x-user token");
+        return null;
+      }
+    } catch (err) {
+      logger.warn({ host: base, err }, "MovieBox: bootstrap host failed");
+    }
+  }
+
+  logger.error("MovieBox: all bootstrap hosts failed");
+  return null;
+}
+
+function tryParseXUser(header: string): string | null {
+  try {
+    const d = JSON.parse(header) as { token?: string };
+    return d.token ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// ── Request helpers ───────────────────────────────────────────────────────────
 
 export interface Stream {
   url: string;
@@ -43,17 +107,14 @@ function buildClientInfo(
     device_id: DEVICE_ID,
     install_store: "ps",
     gaid: "1b2212c1-dadf-43c3-a0c8-bd6ce48ae22d",
-    brand: model,
-    model: brand,
+    brand,
+    model,
     system_language: "en",
     net: "NETWORK_WIFI",
     region: "US",
-    timezone: "Asia/Calcutta",
-    sp_code: "",
-    "X-Play-Mode": "1",
-    "X-Idle-Data": "1",
-    "X-Family-Mode": "0",
-    "X-Content-Mode": "0",
+    timezone: "Asia/Kolkata",
+    sp_code: "40401",
+    "X-Play-Mode": "2",
   });
 }
 
@@ -61,23 +122,26 @@ function mobileHeaders(
   method: string,
   url: string,
   body?: string,
-  token?: string,
+  token?: string | null,
 ): Record<string, string> {
   const { brand, model } = randomBrandModel();
-  const xClientToken = generateXClientToken();
+  const ts = Date.now();
+  const xClientToken = generateXClientToken(ts);
   const xTrSignature = generateXTrSignature(
     method,
     "application/json",
     "application/json",
     url,
     body,
+    false,
+    ts,
   );
 
   const headers: Record<string, string> = {
     "user-agent":
-      "com.community.oneroom/50020088 (Linux; U; Android 13; en_US; " +
+      "com.community.oneroom/50020045 (Linux; U; Android 13; en_US; " +
       brand +
-      "; Build/TQ3A.230901.001; Cronet/145.0.7582.0)",
+      "; Build/TQ2A.230405.003; Cronet/135.0.7012.3)",
     accept: "application/json",
     "content-type": "application/json",
     connection: "keep-alive",
@@ -85,8 +149,8 @@ function mobileHeaders(
     "x-tr-signature": xTrSignature,
     "x-client-info": buildClientInfo(
       "com.community.oneroom",
-      "3.0.13.0325.03",
-      50020088,
+      "3.0.03.0529.03",
+      50020045,
       brand,
       model,
     ),
@@ -100,84 +164,142 @@ function mobileHeaders(
   return headers;
 }
 
+// ── Multi-host GET/POST with automatic JWT bootstrap ─────────────────────────
+
 async function apiGet(
-  url: string,
-  token?: string,
+  path: string,
+  token?: string | null,
 ): Promise<{ data: unknown; responseToken?: string }> {
-  const headers = mobileHeaders("GET", url, undefined, token);
-  const response = await fetch(url, { headers, signal: AbortSignal.timeout(12_000) });
+  const authToken = token ?? await ensureToken();
 
-  if (!response.ok) {
-    const text = await response.text();
-    logger.warn({ url, status: response.status, text }, "MovieBox GET failed");
-    throw new Error(`HTTP ${response.status}: ${text}`);
-  }
-
-  const xUserHeader = response.headers.get("x-user");
-  let responseToken: string | undefined;
-  if (xUserHeader) {
+  for (const base of HOST_POOL) {
+    const url = `${base}${path}`;
+    const headers = mobileHeaders("GET", url, undefined, authToken);
     try {
-      const xUserJson = JSON.parse(xUserHeader) as { token?: string };
-      responseToken = xUserJson.token;
-    } catch {
-      // ignore
+      const response = await fetch(url, {
+        headers,
+        signal: AbortSignal.timeout(12_000),
+      });
+
+      // Absorb a fresh JWT if provided
+      const xu = response.headers.get("x-user");
+      let responseToken: string | undefined;
+      if (xu) {
+        const tok = tryParseXUser(xu);
+        if (tok) {
+          responseToken = tok;
+          cachedToken = tok;
+          tokenExpiresAt = Date.now() + 50 * 60 * 1000;
+        }
+      }
+
+      if (response.ok) {
+        const json = (await response.json()) as { data: unknown };
+        return { data: json.data, responseToken };
+      }
+
+      const text = await response.text();
+      logger.warn({ url, status: response.status, text: text.slice(0, 200) }, "MovieBox GET non-OK");
+      // 441 = auth error — try refreshing token on next attempt
+      if (response.status === 441) {
+        cachedToken = null;
+        tokenExpiresAt = 0;
+      }
+    } catch (err) {
+      logger.warn({ url, err }, "MovieBox GET host failed");
     }
   }
 
-  const json = (await response.json()) as { data: unknown };
-  return { data: json.data, responseToken };
+  throw new Error("MovieBox: all hosts failed for GET " + path);
 }
 
 async function apiPost(
-  url: string,
+  path: string,
   body: string,
-  token?: string,
+  token?: string | null,
 ): Promise<{ data: unknown; responseToken?: string }> {
-  const headers = mobileHeaders("POST", url, body, token);
-  const response = await fetch(url, {
-    method: "POST",
-    headers,
-    body,
-    signal: AbortSignal.timeout(12_000),
-  });
+  const authToken = token ?? await ensureToken();
 
-  if (!response.ok) {
-    const text = await response.text();
-    logger.warn(
-      { url, status: response.status, text },
-      "MovieBox POST failed",
-    );
-    throw new Error(`HTTP ${response.status}: ${text}`);
-  }
-
-  const xUserHeader = response.headers.get("x-user");
-  let responseToken: string | undefined;
-  if (xUserHeader) {
+  for (const base of HOST_POOL) {
+    const url = `${base}${path}`;
+    const headers = mobileHeaders("POST", url, body, authToken);
     try {
-      const xUserJson = JSON.parse(xUserHeader) as { token?: string };
-      responseToken = xUserJson.token;
-    } catch {
-      // ignore
+      const response = await fetch(url, {
+        method: "POST",
+        headers,
+        body,
+        signal: AbortSignal.timeout(12_000),
+      });
+
+      const xu = response.headers.get("x-user");
+      let responseToken: string | undefined;
+      if (xu) {
+        const tok = tryParseXUser(xu);
+        if (tok) {
+          responseToken = tok;
+          cachedToken = tok;
+          tokenExpiresAt = Date.now() + 50 * 60 * 1000;
+        }
+      }
+
+      if (response.ok) {
+        const json = (await response.json()) as { data: unknown };
+        return { data: json.data, responseToken };
+      }
+
+      const text = await response.text();
+      logger.warn({ url, status: response.status, text: text.slice(0, 200) }, "MovieBox POST non-OK");
+      if (response.status === 441) {
+        cachedToken = null;
+        tokenExpiresAt = 0;
+      }
+    } catch (err) {
+      logger.warn({ url, err }, "MovieBox POST host failed");
     }
   }
 
-  const json = (await response.json()) as { data: unknown };
-  return { data: json.data, responseToken };
+  throw new Error("MovieBox: all hosts failed for POST " + path);
 }
 
-function parseSearchResults(data: unknown): Subject[] {
+// ── Result parsers ────────────────────────────────────────────────────────────
+
+/** Parse the v1 search response: data.items[] */
+function parseSearchResultsV1(data: unknown): Subject[] {
+  const d = data as { items?: Array<Record<string, unknown>> };
+  if (!Array.isArray(d?.items)) return [];
+
+  return d.items
+    .map((item) => {
+      const subjectId = item["subjectId"] as string | undefined;
+      // Strip "[Hindi]", "[Dubbed]" etc. suffixes for cleaner matching
+      const rawTitle = item["title"] as string | undefined;
+      const title = rawTitle?.split("[")[0]?.trim() ?? "";
+      if (!subjectId || !title) return null;
+      return {
+        subjectId,
+        title,
+        subjectType: (item["subjectType"] as number | undefined) ?? 1,
+        coverUrl: (item["cover"] as { url?: string } | undefined)?.url,
+        imdbRating: item["imdbRatingValue"] as string | undefined,
+      } satisfies Subject;
+    })
+    .filter((s): s is Subject => s !== null);
+}
+
+/** Parse the v2 search response: data.results[].subjects[] */
+function parseSearchResultsV2(data: unknown): Subject[] {
   const d = data as {
     results?: Array<{ subjects?: Array<Record<string, unknown>> }>;
   };
-  if (!d?.results) return [];
+  if (!Array.isArray(d?.results)) return [];
 
   const subjects: Subject[] = [];
   for (const result of d.results) {
     for (const subject of result.subjects ?? []) {
       const subjectId = subject["subjectId"] as string | undefined;
-      const title = (subject["title"] as string | undefined)?.split("[")[0]?.trim();
+      const rawTitle = subject["title"] as string | undefined;
+      const title = rawTitle?.split("[")[0]?.trim() ?? "";
       if (!subjectId || !title) continue;
-
       subjects.push({
         subjectId,
         title,
@@ -190,14 +312,31 @@ function parseSearchResults(data: unknown): Subject[] {
   return subjects;
 }
 
+// ── Public API ────────────────────────────────────────────────────────────────
+
 export async function searchMovieBox(query: string, page = 1): Promise<Subject[]> {
-  const url = `${MAIN_URL}/wefeed-mobile-bff/subject-api/search/v2`;
-  // API silently returns 0 results when perPage > ~20; actual cap is 15.
-  const body = JSON.stringify({ page, perPage: 15, keyword: query });
+  const body = JSON.stringify({
+    keyword: query,
+    page,
+    perPage: 15,
+    subjectType: 0,
+  });
 
   try {
-    const { data } = await apiPost(url, body);
-    return parseSearchResults(data);
+    // Try v1 search first (simpler, direct items[] response)
+    const { data } = await apiPost(
+      "/wefeed-mobile-bff/subject-api/search",
+      body,
+    );
+    const results = parseSearchResultsV1(data);
+    if (results.length > 0) return results;
+
+    // Fall back to v2 if v1 returned empty
+    const { data: data2 } = await apiPost(
+      "/wefeed-mobile-bff/subject-api/search/v2",
+      body,
+    );
+    return parseSearchResultsV2(data2);
   } catch (err) {
     logger.error({ err, query, page }, "searchMovieBox failed");
     return [];
@@ -209,8 +348,9 @@ export async function getSubjectDetails(subjectId: string): Promise<{
   token?: string;
   dubs: Array<{ subjectId: string; lanName: string }>;
 }> {
-  const url = `${MAIN_URL}/wefeed-mobile-bff/subject-api/get?subjectId=${subjectId}`;
-  const { data, responseToken } = await apiGet(url);
+  const { data, responseToken } = await apiGet(
+    `/wefeed-mobile-bff/subject-api/get?subjectId=${subjectId}`,
+  );
   const d = data as Record<string, unknown>;
 
   const dubs: Array<{ subjectId: string; lanName: string }> = [];
@@ -234,12 +374,11 @@ export async function getPlayInfo(
   episode: number,
   token?: string,
 ): Promise<Stream[]> {
-  const url =
-    `${MAIN_URL}/wefeed-mobile-bff/subject-api/play-info` +
-    `?subjectId=${subjectId}&se=${season}&ep=${episode}`;
-
   try {
-    const { data } = await apiGet(url, token);
+    const { data } = await apiGet(
+      `/wefeed-mobile-bff/subject-api/play-info?subjectId=${subjectId}&se=${season}&ep=${episode}`,
+      token,
+    );
     const d = data as { streams?: Array<Record<string, unknown>> };
     if (!d?.streams || !Array.isArray(d.streams)) return [];
 
@@ -253,7 +392,6 @@ export async function getPlayInfo(
           (s["id"] as string | undefined) ??
           `${subjectId}|${season}|${episode}`,
         codecName: (s["codecName"] as string | undefined) ?? undefined,
-        // lang/lanName: stream-level language tag (e.g. "en", "pt-BR")
         lang: (
           (s["lang"] as string | undefined) ??
           (s["lanName"] as string | undefined) ??
@@ -272,11 +410,11 @@ export async function getExtCaptions(
   streamId: string,
   token?: string,
 ): Promise<Array<{ url: string; lang: string }>> {
-  const url =
-    `${MAIN_URL}/wefeed-mobile-bff/subject-api/get-stream-captions` +
-    `?subjectId=${subjectId}&streamId=${streamId}`;
   try {
-    const { data } = await apiGet(url, token);
+    const { data } = await apiGet(
+      `/wefeed-mobile-bff/subject-api/get-stream-captions?subjectId=${subjectId}&streamId=${streamId}`,
+      token,
+    );
     const d = data as {
       extCaptions?: Array<Record<string, unknown>>;
     };
