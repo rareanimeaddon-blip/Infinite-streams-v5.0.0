@@ -8,11 +8,10 @@ const EMBED_HEADERS = {
   Referer: STREAM_REFERER,
 };
 
-// Source hostnames whose HLS segments come from TikTok CDN (geo-blocked in India).
-// Empirically verified: tik.1x2.space → p16-sg.tiktokcdn.com segments → playback error.
-// vip.1x2.space → s01.sapok001.site segments → works fine.
-const BLOCKED_SOURCE_HOSTNAMES = new Set([
-  "tik.1x2.space",
+// Only sources from this hostname are known to work reliably (non-TikTok CDN).
+// All other DooFlix sources are dead or geo-blocked.
+const ALLOWED_SOURCE_HOSTNAMES = new Set([
+  "vip.1x2.space",
 ]);
 
 export interface DooflixStream {
@@ -59,16 +58,13 @@ function extractBackups(html: string): BackupEntry[] {
 
 interface PlaylistSource { file: string; type?: string; label?: string; }
 
-function isBlockedSource(srcFile: string): boolean {
+function isAllowedSource(srcFile: string): boolean {
   try {
     const { hostname } = new URL(srcFile);
-    if (BLOCKED_SOURCE_HOSTNAMES.has(hostname)) return true;
-    // Also block if the URL itself contains tiktokcdn (shouldn't happen at src level, but just in case)
-    if (/tiktokcdn\.com/i.test(srcFile)) return true;
+    return ALLOWED_SOURCE_HOSTNAMES.has(hostname);
   } catch {
-    return true; // unparseable URL → skip
+    return false;
   }
-  return false;
 }
 
 async function fetchPlaylistStreams(
@@ -97,8 +93,8 @@ async function fetchPlaylistStreams(
         continue;
       }
 
-      if (isBlockedSource(src.file)) {
-        logger.debug({ file: src.file }, "DooFlix: skipping blocked source (TikTok CDN)");
+      if (!isAllowedSource(src.file)) {
+        logger.debug({ file: src.file }, "DooFlix: skipping non-allowlisted source");
         continue;
       }
 
