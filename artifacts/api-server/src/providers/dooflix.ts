@@ -8,9 +8,12 @@ const EMBED_HEADERS = {
   Referer: STREAM_REFERER,
 };
 
-// Segment CDNs that are geo-blocked in India or that block cloud IPs.
-// Identified by probing master.m3u8 → variant.m3u8 → first segment URL.
-const BANNED_SEGMENT_CDN = /tiktokcdn\.com/i;
+// Source hostnames whose HLS segments come from TikTok CDN (geo-blocked in India).
+// Empirically verified: tik.1x2.space → p16-sg.tiktokcdn.com segments → playback error.
+// vip.1x2.space → s01.sapok001.site segments → works fine.
+const BLOCKED_SOURCE_HOSTNAMES = new Set([
+  "tik.1x2.space",
+]);
 
 export interface DooflixStream {
   name: string;
@@ -56,51 +59,16 @@ function extractBackups(html: string): BackupEntry[] {
 
 interface PlaylistSource { file: string; type?: string; label?: string; }
 
-/**
- * Probe a source's HLS chain to determine the segment CDN hostname.
- * Returns null if the chain is broken (non-200, non-M3U8, redirect to HTML, etc.).
- * Returns "relative" if segments are relative URLs.
- * Returns the hostname string if segments are absolute URLs.
- *
- * We use this to exclude sources whose segments come from TikTok CDN
- * (banned in India) or sources with broken redirect chains.
- */
-async function probeSegmentCdn(srcFile: string, embedUrl: string): Promise<string | null> {
+function isBlockedSource(srcFile: string): boolean {
   try {
-    const mr = await fetchWithTimeout(srcFile, {
-      headers: { ...EMBED_HEADERS, Referer: embedUrl },
-      redirect: "follow",
-    }, 8000);
-    if (!mr.ok) return null;
-    const masterText = await mr.text();
-    if (!masterText.includes("#EXTM3U")) return null;
-
-    // Find first variant URL line (non-comment, non-empty)
-    const lines = masterText.split("\n").map(l => l.trim()).filter(l => l && !l.startsWith("#"));
-    if (!lines.length) return null;
-    const firstVariantRaw = lines[0]!;
-
-    const base = new URL(srcFile);
-    const variantUrl = firstVariantRaw.startsWith("http")
-      ? firstVariantRaw
-      : `${base.origin}${base.pathname.replace(/[^/]+$/, "")}${firstVariantRaw}`;
-
-    const vr = await fetchWithTimeout(variantUrl, {
-      headers: { ...EMBED_HEADERS, Referer: srcFile },
-      redirect: "follow",
-    }, 8000);
-    if (!vr.ok) return null;
-    const variantText = await vr.text();
-    if (!variantText.includes("#EXTM3U")) return null;
-
-    const segLines = variantText.split("\n").map(l => l.trim()).filter(l => l && !l.startsWith("#"));
-    if (!segLines.length) return "relative";
-    const firstSeg = segLines[0]!;
-    if (firstSeg.startsWith("http")) return new URL(firstSeg).hostname;
-    return "relative";
+    const { hostname } = new URL(srcFile);
+    if (BLOCKED_SOURCE_HOSTNAMES.has(hostname)) return true;
+    // Also block if the URL itself contains tiktokcdn (shouldn't happen at src level, but just in case)
+    if (/tiktokcdn\.com/i.test(srcFile)) return true;
   } catch {
-    return null;
+    return true; // unparseable URL → skip
   }
+  return false;
 }
 
 async function fetchPlaylistStreams(
@@ -116,52 +84,34 @@ async function fetchPlaylistStreams(
 
   const json = (await res.json()) as { playlist?: { sources?: PlaylistSource[] }[] };
   const now = Math.floor(Date.now() / 1000);
-  const candidates: Array<{ src: PlaylistSource; label: string }> = [];
+  const streams: DooflixStream[] = [];
 
   for (const item of json.playlist ?? []) {
     for (const src of item.sources ?? []) {
       if (!src.file) continue;
       if (/\/video\/error\b/i.test(src.file) || src.file.trim() === "/video/error") continue;
+
       const exp = src.file.match(/[?&]e=(\d+)/);
       if (exp && parseInt(exp[1]!, 10) < now) {
         logger.debug({ file: src.file }, "DooFlix: skipping expired stream");
         continue;
       }
-      candidates.push({ src, label: src.label ?? sourceLabel ?? "HD" });
+
+      if (isBlockedSource(src.file)) {
+        logger.debug({ file: src.file }, "DooFlix: skipping blocked source (TikTok CDN)");
+        continue;
+      }
+
+      const label = src.label ?? sourceLabel ?? "HD";
+      streams.push({
+        name: `DooFlix\n${label}`,
+        title: `▶ ${label} · HLS`,
+        url: src.file,
+        behaviorHints: { notWebReady: true },
+      });
     }
   }
 
-  if (!candidates.length) return [];
-
-  // Probe all candidate sources in parallel to detect segment CDN.
-  const probes = await Promise.allSettled(
-    candidates.map(c => probeSegmentCdn(c.src.file, embedUrl)),
-  );
-
-  const streams: DooflixStream[] = [];
-  for (let i = 0; i < candidates.length; i++) {
-    const { src, label } = candidates[i]!;
-    const probe = probes[i];
-    const segCdn = probe?.status === "fulfilled" ? probe.value : null;
-
-    if (segCdn === null) {
-      logger.debug({ file: src.file }, "DooFlix: skipping — probe failed (broken chain)");
-      continue;
-    }
-    if (BANNED_SEGMENT_CDN.test(segCdn)) {
-      logger.debug({ file: src.file, segCdn }, "DooFlix: skipping — TikTok CDN banned in India");
-      continue;
-    }
-
-    logger.debug({ file: src.file, segCdn }, "DooFlix: source passes probe");
-    // Return the M3U8 URL directly — user's player fetches segments from their own IP.
-    streams.push({
-      name: `DooFlix\n${label}`,
-      title: `▶ ${label} · HLS`,
-      url: src.file,
-      behaviorHints: { notWebReady: true },
-    });
-  }
   return streams;
 }
 
@@ -203,7 +153,7 @@ async function getXpassStreams(
     return [];
   }
 
-  // Fetch all backup playlist.json files in parallel.
+  // Fetch all playlist.json files in parallel.
   const results = await Promise.allSettled(
     toFetch.map(({ path, label }) =>
       fetchPlaylistStreams(`${XPASS_BASE}${path}`, embedUrl, label).catch(err => {
