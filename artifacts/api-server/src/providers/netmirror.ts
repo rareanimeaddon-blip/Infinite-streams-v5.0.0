@@ -199,8 +199,10 @@ export function nmBuildFetchHeaders(
   try {
     const parsed = new URL(targetUrl);
     const host = parsed.hostname;
-    const hotstarNode = /freecdn(\d+)\.top$/.exec(host);
-    if (hotstarNode && parseInt(hotstarNode[1] ?? "0", 10) >= 30) {
+    // All freecdnN.top nodes require Origin/Referer matching their own domain.
+    // Previously restricted to >= 30, but freecdn13 (and others below 30) also
+    // return 404 when Origin is net22.cc — they need self-referential headers.
+    if (/freecdn\d+\.top$/.test(host)) {
       return {
         "User-Agent": NETMIRROR_UA,
         "Accept": "*/*",
