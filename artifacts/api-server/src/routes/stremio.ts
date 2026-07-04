@@ -972,7 +972,7 @@ function proxyHindMoviezStreams(
 }
 
 function neoCdnSourceToStream(src: NeoCdnSource): ADStream[] {
-  const streams: ADStream[] = [
+  return [
     {
       name: "AnimeDekho | NeoCDN",
       title: `${src.type} [${src.size}]`,
@@ -981,24 +981,6 @@ function neoCdnSourceToStream(src: NeoCdnSource): ADStream[] {
       behaviorHints: { notWebReady: false },
     },
   ];
-
-  // The Cloudflare Worker proxy (src.url) occasionally fails with an
-  // "Origin error" (e.g. 404/530) when the worker can't reach the
-  // trycloudflare tunnel. Surface the raw tunnel URL as a second, independent
-  // stream option so playback can fall back to it — residential IPs (actual
-  // playback devices) can usually reach trycloudflare URLs directly even
-  // when the worker proxy is having issues.
-  if (src.rawUrl && src.rawUrl !== src.url) {
-    streams.push({
-      name: "AnimeDekho | NeoCDN (Direct)",
-      title: `${src.type} [${src.size}]`,
-      url: src.rawUrl,
-      type: "url",
-      behaviorHints: { notWebReady: false },
-    });
-  }
-
-  return streams;
 }
 
 async function collectAnimeDekhoEpisodeStreams(
