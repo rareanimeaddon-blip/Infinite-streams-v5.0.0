@@ -525,7 +525,17 @@ async function extractServiceStreams(
 
   if (!playerData?.video_link) return [];
 
-  const referer = NETMIRROR_REFERER;
+  // The CDN host referenced by video_link (e.g. tv.imgcdn.kim) validates the
+  // Referer/Origin against the mirror domain returned in player.php's own
+  // `referer` field (e.g. net52.cc), NOT the fixed net22.cc domain used for
+  // the API calls above — using the wrong one causes the CDN to 404. Fall
+  // back to NETMIRROR_REFERER only if the API didn't return one.
+  const referer = playerData.referer
+    ? playerData.referer.endsWith("/")
+      ? playerData.referer
+      : `${playerData.referer}/`
+    : NETMIRROR_REFERER;
+  const origin = referer.replace(/\/$/, "");
 
   let videoUrl = playerData.video_link;
   try {
@@ -535,7 +545,7 @@ async function extractServiceStreams(
         method: "HEAD",
         headers: {
           "User-Agent": NETMIRROR_UA,
-          "Origin": NETMIRROR_ORIGIN,
+          "Origin": origin,
           "Referer": referer,
         },
         signal: AbortSignal.timeout(8000),
@@ -558,7 +568,7 @@ async function extractServiceStreams(
           "User-Agent": NETMIRROR_UA,
           "Accept": "*/*",
           "Accept-Encoding": "identity",
-          "Origin": NETMIRROR_ORIGIN,
+          "Origin": origin,
           "Referer": referer,
         },
         signal: AbortSignal.timeout(10000),

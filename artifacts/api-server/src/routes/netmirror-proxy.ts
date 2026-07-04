@@ -58,7 +58,11 @@ async function handleNmProxy(req: Request, res: Response): Promise<void> {
 
   const urlForTypeDetect = targetUrl.toLowerCase().split("?")[0] ?? "";
 
-  const safeReferer = (referer || NETMIRROR_REFERER).replace(/net52\.cc/gi, "net22.cc");
+  // NOTE: do NOT rewrite the referer's domain here — NetMirror's CDN issues a
+  // dynamic mirror domain (e.g. net52.cc) per player.php call and validates
+  // Referer/Origin against that exact domain. Forcing it back to net22.cc
+  // causes the CDN to 404.
+  const safeReferer = referer || NETMIRROR_REFERER;
 
   const fetchHeaders = nmBuildFetchHeaders(targetUrl, safeReferer);
 
@@ -247,7 +251,9 @@ router.get("/hls/stream.m3u8", async (req: Request, res: Response): Promise<void
     return;
   }
 
-  const safeReferer = (referer || NETMIRROR_REFERER).replace(/net52\.cc/gi, "net22.cc");
+  // NOTE: do NOT rewrite the referer's domain here — see comment in
+  // handleNmProxy above for why the dynamic mirror domain must be preserved.
+  const safeReferer = referer || NETMIRROR_REFERER;
   const fetchHeaders = nmBuildFetchHeaders(targetUrl, safeReferer);
   const rangeHeader = req.headers["range"];
   if (rangeHeader) fetchHeaders["Range"] = rangeHeader;
@@ -327,7 +333,9 @@ router.get("/nm-seg", async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  const safeReferer = (referer || NETMIRROR_REFERER).replace(/net52\.cc/gi, "net22.cc");
+  // NOTE: do NOT rewrite the referer's domain here — see comment in
+  // handleNmProxy above for why the dynamic mirror domain must be preserved.
+  const safeReferer = referer || NETMIRROR_REFERER;
 
   // Use cached variant playlist — shared across concurrent seeks so the CDN
   // isn't hammered with duplicate fetches. Cache refreshes every 20 s to keep
