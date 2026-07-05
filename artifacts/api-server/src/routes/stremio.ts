@@ -2606,19 +2606,44 @@ router.get(["/hlsproxy", "/hlsproxy/playlist.m3u8"], async (req, res) => {
         text.includes("#EXTINF");
 
       if (isRealPlaylist) {
+        // Helper: rewrite a single URL through this proxy (preserves referer chain)
+        const rewriteUri = (uri: string): string => {
+          try {
+            const absUrl = new URL(uri, targetUrl).href;
+            const eu = Buffer.from(absUrl).toString("base64url");
+            const er = Buffer.from(referer).toString("base64url");
+            return `${base}?u=${eu}&r=${er}`;
+          } catch {
+            return uri;
+          }
+        };
+
         const rewritten = text
           .split("\n")
           .map((line) => {
             const trimmed = line.trim();
-            if (!trimmed || trimmed.startsWith("#")) return line;
-            try {
-              const absUrl = new URL(trimmed, targetUrl).href;
-              const eu = Buffer.from(absUrl).toString("base64url");
-              const er = Buffer.from(referer).toString("base64url");
-              return `${base}?u=${eu}&r=${er}`;
-            } catch {
-              return line;
+            if (!trimmed) return line;
+
+            // Non-comment line → bare segment or sub-playlist URI
+            if (!trimmed.startsWith("#")) return rewriteUri(trimmed);
+
+            // Tag lines that embed URI="..." attributes:
+            //   #EXT-X-KEY        — AES-128/SAMPLE-AES decryption key (fixes "video not supported" on webOS)
+            //   #EXT-X-MEDIA      — alternate audio/subtitle rendition playlists (fixes missing audio on Android)
+            //   #EXT-X-MAP        — fMP4 initialisation segment
+            //   #EXT-X-I-FRAME-STREAM-INF — I-frame trick-play sub-playlist
+            //   #EXT-X-SESSION-KEY — session-level key
+            if (
+              trimmed.startsWith("#EXT-X-KEY") ||
+              trimmed.startsWith("#EXT-X-MEDIA") ||
+              trimmed.startsWith("#EXT-X-MAP") ||
+              trimmed.startsWith("#EXT-X-I-FRAME-STREAM-INF") ||
+              trimmed.startsWith("#EXT-X-SESSION-KEY")
+            ) {
+              return line.replace(/URI="([^"]+)"/g, (_, uri) => `URI="${rewriteUri(uri)}"`);
             }
+
+            return line;
           })
           .join("\n");
 
