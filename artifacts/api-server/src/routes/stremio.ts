@@ -2276,7 +2276,7 @@ router.get("/stream/:type/:id.json", async (req, res) => {
         ep.has("moviebox") ? getMovieBoxStreams(meta, season, episode, req, imdbId) : Promise.resolve([]),
         ep.has("meowtv") ? getMeowTvStreams(type as "movie" | "series", imdbId, season, episode, apiBase(req), meta.title) : Promise.resolve([]),
         ep.has("dahmermovies") ? getDahmerMoviesStreams(meta.title, meta.year, type, season, episode, req, imdbId) : Promise.resolve([]),
-        ep.has("hindmovies") ? hindmoviezGetStreams(type as "movie" | "series", imdbId, season, episode) : Promise.resolve([]),
+        ep.has("hindmovies") ? hindmoviezGetStreams(type as "movie" | "series", imdbId, season, episode, meta.title, meta.year ? String(meta.year) : undefined) : Promise.resolve([]),
         ep.has("fourkdhub") ? (isSeries ? getFourkdHubSeriesStreams(meta.title, season!, episode!, imdbId) : getFourkdHubStreams(meta.title, type, imdbId)) : Promise.resolve([]),
         ep.has("hdhub4u") ? (isSeries ? getHDHub4USeriesStreams(meta.title, season!, episode!, imdbId) : getHDHub4UStreams(meta.title, type, imdbId)) : Promise.resolve([]),
       ]);
@@ -2400,7 +2400,7 @@ router.get("/stream/:type/:id.json", async (req, res) => {
         ep2.has("moviebox") ? getMovieBoxStreams(meta, season, episode, req, id) : Promise.resolve([]),
         (ep2.has("meowtv") && hasImdb) ? getMeowTvStreams(type as "movie" | "series", meta.imdbId, season, episode, apiBase(req), meta.title) : Promise.resolve([]),
         ep2.has("dahmermovies") ? getDahmerMoviesStreams(meta.title, meta.year, type, season, episode, req, hasImdb ? meta.imdbId : undefined) : Promise.resolve([]),
-        (ep2.has("hindmovies") && hasImdb) ? hindmoviezGetStreams(type as "movie" | "series", meta.imdbId, season, episode) : Promise.resolve([]),
+        (ep2.has("hindmovies") && hasImdb) ? hindmoviezGetStreams(type as "movie" | "series", meta.imdbId, season, episode, meta.title, meta.year ? String(meta.year) : undefined) : Promise.resolve([]),
         ep2.has("fourkdhub") ? (isSeries2 ? getFourkdHubSeriesStreams(meta.title, season!, episode!, hasImdb ? meta.imdbId : undefined) : getFourkdHubStreams(meta.title, type, hasImdb ? meta.imdbId : undefined)) : Promise.resolve([]),
         ep2.has("hdhub4u") ? (isSeries2 ? getHDHub4USeriesStreams(meta.title, season!, episode!, hasImdb ? meta.imdbId : undefined) : getHDHub4UStreams(meta.title, type, hasImdb ? meta.imdbId : undefined)) : Promise.resolve([]),
       ]);

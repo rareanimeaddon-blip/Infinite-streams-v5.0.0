@@ -581,14 +581,26 @@ export async function getStreams(
   imdbId: string,
   season?: number,
   episode?: number,
+  /** Pre-resolved title — skips the internal IMDB/OMDB lookup when provided */
+  resolvedTitle?: string,
+  /** Pre-resolved year string — skips the internal IMDB/OMDB lookup when provided */
+  resolvedYear?: string,
 ): Promise<StremioStream[]> {
   if (!imdbId.startsWith("tt")) return [];
 
   try {
-    const meta = await getMovieMeta(imdbId);
-    if (!meta) {
-      logger.warn({ imdbId }, "HindMoviez: could not resolve meta");
-      return [];
+    // Prefer caller-supplied meta (already resolved by the aggregator) so we
+    // avoid redundant IMDB / OMDB network calls that are often geo-blocked from
+    // cloud IPs. Fall back to the internal lookup only when nothing is passed.
+    let meta: { title: string; year: string } | null = null;
+    if (resolvedTitle) {
+      meta = { title: resolvedTitle, year: resolvedYear ?? "" };
+    } else {
+      meta = await getMovieMeta(imdbId);
+      if (!meta) {
+        logger.warn({ imdbId }, "HindMoviez: could not resolve meta");
+        return [];
+      }
     }
 
     const siteEntry = await findMovieByTitle(meta.title, meta.year || undefined, imdbId);
