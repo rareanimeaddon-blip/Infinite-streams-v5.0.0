@@ -1260,7 +1260,12 @@ function pxpStreamToStremio(s: PxpStreamResult, req: Request): Record<string, un
   }
   const url = s.url!;
   const referer = (s.behaviorHints?.proxyHeaders as { request?: Record<string, string> } | undefined)?.request?.["Referer"];
-  if (url.includes(".m3u8") && needsPxpProxy(url)) {
+  // Proxy ALL HLS streams through our server: LG webOS's system media pipeline
+  // ignores Stremio's proxyHeaders for HLS segment fetches, so CDN segment
+  // requests arrive without the required Referer and get 403-blocked.
+  // Proxying every .m3u8 ensures the Referer is forwarded for every segment,
+  // key, and audio-track request regardless of which CDN gdmirr resolves to.
+  if (url.includes(".m3u8")) {
     const base = apiBase(req);
     const eu = Buffer.from(url).toString("base64url");
     const proxyUrl = `${base}/hlsproxy/playlist.m3u8?u=${eu}${referer ? `&r=${Buffer.from(referer).toString("base64url")}` : ""}`;
@@ -2633,6 +2638,30 @@ router.get(["/hlsproxy", "/hlsproxy/playlist.m3u8"], async (req, res) => {
             //   #EXT-X-MAP        — fMP4 initialisation segment
             //   #EXT-X-I-FRAME-STREAM-INF — I-frame trick-play sub-playlist
             //   #EXT-X-SESSION-KEY — session-level key
+            if (trimmed.startsWith("#EXT-X-MEDIA") && trimmed.includes("TYPE=AUDIO")) {
+              // Rewrite URI and set Hindi as the DEFAULT audio track so players
+              // (LG webOS, Android Stremio, VLC) auto-select Hindi without user action.
+              const langM = line.match(/LANGUAGE="([^"]+)"/i);
+              const nameM = line.match(/NAME="([^"]+)"/i);
+              const lang = (langM?.[1] ?? "").toLowerCase();
+              const name = (nameM?.[1] ?? "").toLowerCase();
+              const isHindi =
+                lang === "hin" || lang === "hi" || lang.startsWith("hin") ||
+                name.includes("hindi") || name.includes("hin");
+
+              let out = line.replace(/URI="([^"]+)"/g, (_, uri) => `URI="${rewriteUri(uri)}"`);
+              // Flip DEFAULT and AUTOSELECT; add them if absent
+              if (/DEFAULT=(YES|NO)/i.test(out)) {
+                out = out.replace(/DEFAULT=(YES|NO)/i, isHindi ? "DEFAULT=YES" : "DEFAULT=NO");
+              } else {
+                out = out.replace(/#EXT-X-MEDIA:/, `#EXT-X-MEDIA:DEFAULT=${isHindi ? "YES" : "NO"},`);
+              }
+              if (/AUTOSELECT=(YES|NO)/i.test(out)) {
+                out = out.replace(/AUTOSELECT=(YES|NO)/i, isHindi ? "AUTOSELECT=YES" : "AUTOSELECT=NO");
+              }
+              return out;
+            }
+
             if (
               trimmed.startsWith("#EXT-X-KEY") ||
               trimmed.startsWith("#EXT-X-MEDIA") ||
