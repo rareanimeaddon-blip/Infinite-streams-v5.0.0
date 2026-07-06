@@ -14,11 +14,71 @@ const router = Router();
 
 const NETMIRROR_REFERER = "https://net22.cc/";
 
+// ─── Rate-limit circuit breaker ───────────────────────────────────────────────
+// When the NetMirror CDN returns an HTML abuse / rate-limit page we stop hitting
+// that CDN host for a cooldown period rather than hammering it further.
+
+const RATELIMIT_COOLDOWN = 3 * 60 * 1000; // 3 minutes
+const rateLimitedHosts = new Map<string, number>(); // host → expiry timestamp
+
+function isHostRateLimited(url: string): boolean {
+  try {
+    const host = new URL(url).hostname;
+    const expiry = rateLimitedHosts.get(host);
+    if (!expiry) return false;
+    if (Date.now() < expiry) return true;
+    rateLimitedHosts.delete(host);
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+function markHostRateLimited(url: string): void {
+  try {
+    const host = new URL(url).hostname;
+    rateLimitedHosts.set(host, Date.now() + RATELIMIT_COOLDOWN);
+    logger.warn({ host }, "NetMirror CDN: rate-limited — pausing requests for 3 min");
+  } catch { /* ignore */ }
+}
+
+/** Returns true (and sends a 429) if the upstream response body is an HTML abuse page. */
+async function rejectIfAbusePage(upstream: Response, targetUrl: string, res: Response): Promise<boolean> {
+  const ct = upstream.headers.get("content-type") ?? "";
+  if (!ct.includes("text/html")) return false;
+  // Read a small prefix to detect the abuse page without buffering everything
+  const reader = upstream.body?.getReader();
+  if (!reader) return false;
+  let snippet = "";
+  try {
+    const { value } = await reader.read();
+    if (value) snippet = new TextDecoder().decode(value.slice(0, 2048));
+  } finally {
+    reader.cancel().catch(() => {});
+  }
+  const isAbuse =
+    snippet.includes("Too Many Requests") ||
+    snippet.includes("STOP Abuse") ||
+    snippet.includes("Stop Abuse") ||
+    snippet.includes("Rate Limit") ||
+    snippet.includes("rate limit") ||
+    snippet.includes("Cloudflare") && upstream.status === 429;
+  if (isAbuse) {
+    markHostRateLimited(targetUrl);
+    if (!res.headersSent) {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.status(429).send("NetMirror CDN rate-limited — try again in a few minutes");
+    }
+    return true;
+  }
+  return false;
+}
+
 // ─── Variant playlist cache ───────────────────────────────────────────────────
 // Shared across concurrent nm-seg requests so seeks don't hammer the CDN with
-// duplicate variant fetches. TTL kept well under the CDN token expiry (~30s).
+// duplicate variant fetches.
 
-const VARIANT_CACHE_TTL = 20_000; // 20 seconds
+const VARIANT_CACHE_TTL = 90_000; // 90 seconds — reduces CDN variant re-fetches by ~4x vs 20 s
 const variantCache = new Map<string, { text: string; fetchedAt: number }>();
 
 async function fetchVariantCached(variantUrl: string, referer: string): Promise<string> {

@@ -483,21 +483,25 @@ export async function fetchDahmerStreams(
     const candidates = links.slice(0, 5);
 
     // ── Step 8: build streams ─────────────────────────────────────────────────
-    // Route through /proxy/dahmer-auto which fetches directly from a.111477.xyz.
-    // This avoids p.111477.xyz/bulk which causes Cloudflare 1015 rate-limits and
-    // issues 302 redirects that break native-app playback. The auto-proxy supports
-    // byte-range requests (seeks), has a 5-min working-URL cache, and streams the
-    // file body through our server so no CDN auth tokens need to reach the client.
+    // Route through our /proxy/dahmer when we have a proxyBase.  The proxy:
+    //   • absorbs Cloudflare 1015 rate-limiting on our server IP, not user's phone
+    //   • keeps worker URLs off the client so tokens don't need to reach devices
     // Without proxyBase (e.g. direct CLI testing) fall back to the worker URL.
     const results: DahmerStream[] = candidates.map((p) => {
-      const quality = detectQuality(p.text);
-      const lang    = detectLanguage(p.text);
-      const size    = p.size ?? "N/A";
-      const ext     = detectExt(p.text);
+      const workerUrl = toWorkerUrl(p.href);
+      const quality   = detectQuality(p.text);
+      const lang      = detectLanguage(p.text);
+      const size      = p.size ?? "N/A";
+      const ext       = detectExt(p.text);
 
-      const streamUrl = proxyBase
-        ? toAutoProxyUrl([p.href], proxyBase)
-        : toWorkerUrl(p.href);
+      let streamUrl: string;
+      if (proxyBase) {
+        const enc = Buffer.from(workerUrl, "utf8").toString("base64url");
+        streamUrl  = `${proxyBase}/proxy/dahmer?url=${enc}`;
+        if (p.sizeBytes) streamUrl += `&size=${p.sizeBytes}`;
+      } else {
+        streamUrl = workerUrl;
+      }
 
       return {
         name:  "DahmerMovies",
