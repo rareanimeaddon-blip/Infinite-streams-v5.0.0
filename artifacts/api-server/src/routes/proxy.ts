@@ -1665,11 +1665,52 @@ router.all("/proxy/dahmer", async (req: Request, res: Response): Promise<void> =
   try {
     const upstream = await dahmerUpstreamFetch(originalUrl, fetchHeaders);
 
-    // 429 after all retries — redirect to worker so Stremio tries from user's IP
+    // 429 after all retries — try fetching the a.111477.xyz file directly
+    // (bypasses the rate-limited bulk worker entirely).  Never 302 to the
+    // worker: that sends the user's device to p.111477.xyz which Cloudflare
+    // will also 1015, showing the user an error page instead of a stream.
     if (upstream.status === 429) {
-      logger.warn({ url: originalUrl }, "DahmerProxy: rate-limited after retries, issuing 302");
-      res.setHeader("Location", originalUrl);
-      res.status(302).end();
+      logger.warn({ url: originalUrl }, "DahmerProxy: rate-limited after retries, trying direct file fetch");
+      let directUrl: string | null = null;
+      if (isWorkerUrl) {
+        try {
+          const wu = new URL(originalUrl);
+          const candidate = wu.searchParams.get("u") ?? "";
+          if (candidate.startsWith("https://a.111477.xyz/")) directUrl = candidate;
+        } catch { /* ignore */ }
+      }
+      if (directUrl) {
+        const directHeaders: Record<string, string> = {
+          ...fetchHeaders,
+          "Referer": "https://a.111477.xyz/",
+          "Origin":  "https://a.111477.xyz",
+        };
+        const directUpstream = await dahmerUpstreamFetch(directUrl, directHeaders);
+        if (directUpstream.status < 400 && !((directUpstream.headers.get("content-type") ?? "").includes("text/html"))) {
+          const dct = directUpstream.headers.get("content-type") ?? contentType;
+          res.setHeader("Content-Type", dct);
+          const dcl = directUpstream.headers.get("content-length");
+          if (dcl) res.setHeader("Content-Length", dcl);
+          const dcr = directUpstream.headers.get("content-range");
+          if (dcr) res.setHeader("Content-Range", dcr);
+          res.status(directUpstream.status);
+          if (!directUpstream.body) { res.end(); return; }
+          const reader = directUpstream.body.getReader();
+          req.on("close", () => reader.cancel().catch(() => {}));
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done || res.destroyed) break;
+              res.write(Buffer.from(value));
+            }
+          } catch { /* client disconnected */ }
+          res.end();
+          return;
+        }
+        directUpstream.body?.cancel().catch(() => {});
+      }
+      logger.warn({ url: originalUrl }, "DahmerProxy: all fallbacks exhausted");
+      if (!res.headersSent) res.status(502).send("Stream temporarily unavailable — rate limited. Try another quality or wait a moment.");
       return;
     }
 
