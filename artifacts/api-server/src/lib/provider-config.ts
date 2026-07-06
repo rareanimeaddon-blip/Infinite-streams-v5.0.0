@@ -15,14 +15,15 @@
  *  10 = moviebox
  *  11 = meowtv
  *  12 = moviesdrive
- *  13 = dahmermovies
- *  14 = hindmovies
- *  15 = fourkdhub
- *  16 = hdhub4u
+ *  13 = hdghartv
+ *  14 = vaplayer
+ *  15 = hindmovies
+ *  16 = fourkdhub
+ *  17 = hdhub4u
  *
- * The config mask is a 17-character string of '0' or '1'.
+ * The config mask is an 18-character string of '0' or '1'.
  * '1' means enabled, '0' means disabled.
- * "11111111111111111" = all providers enabled (default).
+ * "111111111111111111" = all providers enabled (default).
  */
 
 export const PROVIDER_LIST = [
@@ -39,7 +40,8 @@ export const PROVIDER_LIST = [
   "moviebox",
   "meowtv",
   "moviesdrive",
-  "dahmermovies",
+  "hdghartv",
+  "vaplayer",
   "hindmovies",
   "fourkdhub",
   "hdhub4u",
@@ -47,7 +49,7 @@ export const PROVIDER_LIST = [
 
 export type ProviderKey = (typeof PROVIDER_LIST)[number];
 
-export const ALL_PROVIDERS_MASK = "11111111111111111";
+export const ALL_PROVIDERS_MASK = "111111111111111111";
 
 export function parseProviderConfig(config: string): Set<ProviderKey> {
   const enabled = new Set<ProviderKey>();

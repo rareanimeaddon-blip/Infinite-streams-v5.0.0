@@ -2,10 +2,10 @@ export const ADDON_ID = "community.infinitestreams.stremio";
 
 export const manifest = {
   id: ADDON_ID,
-  version: "8.7.0",
+  version: "8.8.0",
   name: "INFINITE STREAMS",
   description:
-    "♾️ 17 providers. One addon. Zero compromise.\n" +
+    "♾️ 18 providers. One addon. Zero compromise.\n" +
     "🎌 Kartoons — 479 shows & 515 movies: Hindi/English anime & cartoons.\n" +
     "⛩️ AnimeSalt — Hindi, English & Japanese multi-audio anime HLS.\n" +
     "🌙 RareAnime India — Hindi & Tamil dubbed anime (rareanimes.buzz + animetoonhindi).\n" +
@@ -19,7 +19,8 @@ export const manifest = {
     "🍿 MovieBox — Multi-audio: Hindi, Bengali, English & more.\n" +
     "🐱 MeowTV — Lynx, Pseudo, TCloud, IPCloud & Hindi servers (meowtv.ru).\n" +
     "🚗 MoviesDrive — 720p/1080p/4K direct file streams via HubCloud CDN (moviesdrives.my).\n" +
-    "💀 DahmerMovies — High-quality 1080p/4K direct file streams.\n" +
+    "🏚️ HDGharTV — Multi-quality direct streams via hdghartv.cc.\n" +
+    "🎮 VaPlayer — HLS streams matched directly by IMDB ID.\n" +
     "🎞️ HindMoviez — Bollywood, Hollywood & Hindi-dubbed in 480p–4K.\n" +
     "🔵 4KHDHub — 4K/1080p Hindi & Dual-audio streams via HubCloud CDN.\n" +
     "📡 HDHub4U — Hindi/Dual-audio movies & series via HubCloud CDN.\n" +
@@ -175,5 +176,5 @@ export const manifest = {
 };
 
 // Provider config — order must match PROVIDER_LIST in lib/provider-config.ts
-// Index: 0=kartoons 1=animesalt 2=rareanime 3=animedekho 4=piratexplay 5=netmirror 6=streamflix 7=dooflix 8=castletv 9=vidlink 10=moviebox 11=meowtv 12=moviesdrive 13=dahmermovies 14=hindmovies 15=fourkdhub 16=hdhub4u
-export const ALL_ENABLED_MASK = "11111111111111111";
+// Index: 0=kartoons 1=animesalt 2=rareanime 3=animedekho 4=piratexplay 5=netmirror 6=streamflix 7=dooflix 8=castletv 9=vidlink 10=moviebox 11=meowtv 12=moviesdrive 13=hdghartv 14=vaplayer 15=hindmovies 16=fourkdhub 17=hdhub4u
+export const ALL_ENABLED_MASK = "111111111111111111";

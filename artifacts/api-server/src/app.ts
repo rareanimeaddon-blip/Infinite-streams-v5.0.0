@@ -64,7 +64,7 @@ function serveLandingPage(req: express.Request, res: express.Response) {
 
   // Provider order MUST match PROVIDER_LIST in lib/provider-config.ts
   // 0=kartoons 1=animesalt 2=rareanime 3=animedekho 4=piratexplay 5=netmirror 6=streamflix
-  // 7=dooflix 8=castletv 9=vidlink 10=moviebox 11=meowtv 12=moviesdrive 13=dahmermovies 14=hindmovies 15=fourkdhub 16=hdhub4u
+  // 7=dooflix 8=castletv 9=vidlink 10=moviebox 11=meowtv 12=moviesdrive 13=hdghartv 14=vaplayer 15=hindmovies 16=fourkdhub 17=hdhub4u
   const providers: Array<{
     key: string;
     name: string;
@@ -196,13 +196,23 @@ function serveLandingPage(req: express.Request, res: express.Response) {
       category: "movies",
     },
     {
-      key: "dahmermovies",
-      name: "DahmerMovies",
-      emoji: "💀",
+      key: "hdghartv",
+      name: "HDGharTV",
+      emoji: "🏚️",
       color: "#ef4444",
       glow: "rgba(239,68,68,0.25)",
-      tags: ["1080p", "4K", "Direct Links", "Movies & TV"],
-      desc: "High-quality 1080p and 4K direct file streams with strict size filtering for premium sources.",
+      tags: ["4K", "1080p", "720p", "Movies & Series"],
+      desc: "Multi-quality direct streams via hdghartv.cc, sorted from 4K down to 360p.",
+      category: "movies",
+    },
+    {
+      key: "vaplayer",
+      name: "VaPlayer",
+      emoji: "🎮",
+      color: "#0ea5e9",
+      glow: "rgba(14,165,233,0.25)",
+      tags: ["HLS", "IMDB Matched", "Movies & Series"],
+      desc: "HLS streams matched directly by IMDB ID via streamdata.vaplayer.ru — no title search needed.",
       category: "movies",
     },
     {
@@ -284,7 +294,7 @@ function serveLandingPage(req: express.Request, res: express.Response) {
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<meta name="description" content="INFINITE STREAMS — 16 providers, one addon. Kartoons, AnimeSalt, RareAnime, AnimeDekho, NetMirror, StreamFlix, DooFlix, CastleTV, VidLink, MovieBox, MeowTV, MoviesDrive, DahmerMovies, HindMoviez, 4KHDHub, HDHub4U. Install in one click."/>
+<meta name="description" content="INFINITE STREAMS — 18 providers, one addon. Kartoons, AnimeSalt, RareAnime, AnimeDekho, NetMirror, StreamFlix, DooFlix, CastleTV, VidLink, MovieBox, MeowTV, MoviesDrive, HDGharTV, VaPlayer, HindMoviez, 4KHDHub, HDHub4U. Install in one click."/>
 <title>INFINITE STREAMS — Stremio Addon</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300..900;1,14..32,300..900&display=swap" rel="stylesheet"/>
@@ -501,7 +511,7 @@ footer{border-top:1px solid var(--border);padding:52px 0;text-align:center}
 
     <div class="hero-pill">
       <div class="hero-pill-dot"></div>
-      ${manifest.catalogs.length} catalogs &nbsp;·&nbsp; 16 providers &nbsp;·&nbsp; Live
+      ${manifest.catalogs.length} catalogs &nbsp;·&nbsp; 18 providers &nbsp;·&nbsp; Live
     </div>
 
     <div class="brand-logo">
@@ -513,7 +523,7 @@ footer{border-top:1px solid var(--border);padding:52px 0;text-align:center}
       <span class="h1-word2">STREAMS</span>
     </h1>
 
-    <p class="hero-sub">16 providers. One addon. Zero compromise.<br/>Movies, series &amp; anime — all in one install.</p>
+    <p class="hero-sub">18 providers. One addon. Zero compromise.<br/>Movies, series &amp; anime — all in one install.</p>
     <div class="credit-tag">Made by <a href="https://t.me/Master_si" target="_blank">@Master_si</a></div>
 
     <div class="install-box">
@@ -659,7 +669,7 @@ footer{border-top:1px solid var(--border);padding:52px 0;text-align:center}
       <img src="${BASE_PATH}/logo.png" alt="∞"/>
       <span class="footer-name">INFINITE STREAMS</span>
     </div>
-    <p class="footer-desc">16 providers, zero compromise. Movies, series &amp; anime from every corner of the web. Free forever.</p>
+    <p class="footer-desc">18 providers, zero compromise. Movies, series &amp; anime from every corner of the web. Free forever.</p>
     <div class="footer-links">
       <a href="${defaultManifestUrl}" target="_blank">manifest.json</a>
       <a href="${base}${BASE_PATH}/debug" class="footer-debug-btn">🛠 Debug Console</a>
@@ -677,7 +687,7 @@ footer{border-top:1px solid var(--border);padding:52px 0;text-align:center}
     <img src="${BASE_PATH}/logo.png" alt="∞"/>
     <div>
       <div class="sticky-bar-title">INFINITE STREAMS</div>
-      <div class="sticky-bar-sub">16 providers · one addon</div>
+      <div class="sticky-bar-sub">18 providers · one addon</div>
     </div>
   </div>
   <a href="${stremioUrl}" class="sticky-install" id="sticky-install-btn">

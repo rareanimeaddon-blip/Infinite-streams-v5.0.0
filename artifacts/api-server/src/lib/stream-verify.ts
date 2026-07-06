@@ -136,7 +136,7 @@ export const PROVIDER_VERIFY_REPORT = {
   },
   providers: {
     imdbVerified: {
-      providers: ["AnimeSalt", "CastleTV", "DooFlix", "MeowTV", "HindMoviez", "NetMirror"],
+      providers: ["AnimeSalt", "CastleTV", "DooFlix", "MeowTV", "HindMoviez", "NetMirror", "VaPlayer"],
       note: "These providers receive the exact IMDb ID for lookup. They get +20 trust boost. Stream objects contain quality/server metadata only — no embedded content titles. Title/type mismatches at the provider backend cannot be detected from stream objects alone.",
     },
     tmdbVerified: {
@@ -148,7 +148,7 @@ export const PROVIDER_VERIFY_REPORT = {
       note: "Title-search providers. The resolved provider title is attached to each stream and compared against the requested title. Both title mismatch and type conflict are detected.",
     },
     approximateTitleVerification: {
-      providers: ["Kartoons", "RareAnime", "AnimeDekho", "DahmerMovies"],
+      providers: ["Kartoons", "RareAnime", "AnimeDekho", "HDGharTV"],
       note: "Title-search providers where similarity filtering is applied inside the provider wrapper. Streams are tagged with the requested title as approximation. AnimeDekho additionally reports its resolved content type, enabling type-conflict detection.",
     },
     limitationsNotes: {

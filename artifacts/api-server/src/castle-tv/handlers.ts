@@ -17,7 +17,6 @@ import {
   titleSimilarity,
 } from "./cinemeta.js";
 import { getTmdbInfo, searchTmdbByTitle } from "./tmdb.js";
-import { fetchDahmerStreams } from "./dahmermovies.js";
 import { fetchStreamflixStreams } from "./streamflix.js";
 import { tmdbTitleToImdbId } from "../lib/tmdb-verify.js";
 import { logger } from "../lib/logger.js";
@@ -524,14 +523,8 @@ async function handleCastleTvStream(
   const title = details?.title ?? "";
   const year = details?.publishTime ? new Date(details.publishTime).getFullYear() : undefined;
 
-  const [castleStreams, dahmerStreams, streamflixStreams] = await Promise.all([
+  const [castleStreams, streamflixStreams] = await Promise.all([
     fetchStreams(movieId, episodeId, tracks),
-    title
-      ? fetchDahmerStreams(title, year ?? null, targetSeason, targetEpNumber).catch((err) => {
-          logger.warn({ err }, "castle-tv native: dahmermovies error");
-          return [];
-        })
-      : Promise.resolve([]),
     title
       ? (async () => {
           try {
@@ -552,12 +545,11 @@ async function handleCastleTvStream(
 
   const streams: StremioStream[] = [
     ...castleStreams,
-    ...(dahmerStreams as StremioStream[]),
     ...(streamflixStreams as StremioStream[]),
   ];
 
   logger.info(
-    { movieId, title, castle: castleStreams.length, dahmermovies: dahmerStreams.length, streamflix: streamflixStreams.length },
+    { movieId, title, castle: castleStreams.length, streamflix: streamflixStreams.length },
     "castle-tv native: combined streams",
   );
 
@@ -648,7 +640,7 @@ async function handleImdbStream(
   }
   logger.info({ imdbId, title, year, type, tmdbId: tmdbInfo?.tmdbId }, "handleImdbStream: running all providers");
 
-  const [castleStreams, dahmerStreams, streamflixStreams] =
+  const [castleStreams, streamflixStreams] =
     await Promise.all([
       getCastleTvImdbStreams(type, imdbId, title, year, season, episode).catch(
         (err) => {
@@ -656,10 +648,6 @@ async function handleImdbStream(
           return [] as StremioStream[];
         },
       ),
-      fetchDahmerStreams(title, year ?? null, season, episode, undefined, imdbId).catch((err) => {
-        logger.warn({ err }, "dahmermovies provider error");
-        return [];
-      }),
       tmdbInfo
         ? fetchStreamflixStreams(
             tmdbInfo.tmdbId,
@@ -675,7 +663,6 @@ async function handleImdbStream(
 
   const streams: StremioStream[] = [
     ...castleStreams,
-    ...(dahmerStreams as StremioStream[]),
     ...(streamflixStreams as StremioStream[]),
   ];
 
@@ -684,7 +671,6 @@ async function handleImdbStream(
       imdbId,
       title,
       castle: castleStreams.length,
-      dahmermovies: dahmerStreams.length,
       streamflix: streamflixStreams.length,
       total: streams.length,
     },

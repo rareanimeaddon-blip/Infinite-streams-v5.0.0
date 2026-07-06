@@ -1,6 +1,6 @@
 # INFINITE STREAMS
 
-A Stremio addon (v8.7.0) that aggregates streams from 15 providers into a single manifest — movies, series, and anime with Indian-language content support.
+A Stremio addon (v8.8.0) that aggregates streams from 18 providers into a single manifest — movies, series, and anime with Indian-language content support.
 
 ## Run & Operate
 
@@ -12,13 +12,13 @@ A Stremio addon (v8.7.0) that aggregates streams from 15 providers into a single
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
 - API: Express 5, esbuild (fully self-contained ESM bundle)
-- 15 stream providers: Kartoons, AnimeSalt, RareAnime, AnimeDekho, NetMirror, StreamFlix, DooFlix, CastleTV, VidLink, MovieBox, MeowTV, DahmerMovies, HindMoviez, 4KHDHub, HDHub4U
+- 18 stream providers: Kartoons, AnimeSalt, RareAnime, AnimeDekho, PirateXplay, NetMirror, StreamFlix, DooFlix, CastleTV, VidLink, MovieBox, MeowTV, MoviesDrive, HDGharTV, VaPlayer, HindMoviez, 4KHDHub, HDHub4U
 - Title matching: Typesense (HDHub4U) + custom `titleSimilarityScore` (Jaccard + length penalty)
 - Health endpoint: `GET /api/healthz`
 
 ## Where things live
 
-- `artifacts/api-server/src/providers/` — one file per stream provider (kartoons.ts added)
+- `artifacts/api-server/src/providers/` — one file per stream provider (hdghartv.ts, vaplayer.ts added)
 - `artifacts/api-server/src/lib/kartoons-config.ts` — Kartoons config loader (token, base URL)
 - `artifacts/api-server/src/lib/kartoons-addon.ts` — Kartoons Stremio addon API client (search, episodes, streams)
 - `artifacts/api-server/src/routes/stremio.ts` — main aggregation logic, per-provider stream functions
@@ -30,6 +30,7 @@ A Stremio addon (v8.7.0) that aggregates streams from 15 providers into a single
 
 ## Version history
 
+- v8.8.0 — Added HDGharTV (title-search via hdghartv.cc) and VaPlayer (IMDB-direct via streamdata.vaplayer.ru) as providers 14 and 15, inserted right after MoviesDrive. Completely removed DahmerMovies — deleted from the main aggregation pipeline (`stremio.ts`, `provider-config.ts`, `manifest.ts`, `app.ts`, `routes/debug.ts`, `lib/stream-verify.ts`) and from the standalone Castle TV addon (`castle-tv/handlers.ts`, `castle-tv/dahmermovies.ts` deleted, `routes/castle-tv.ts`, `routes/proxy.ts` — removed `/proxy/dahmer` and `/proxy/dahmer-auto` routes). Provider mask is now 18 chars ("111111111111111111").
 - v8.7.0 — Fixed MovieBox provider (was returning 0 streams). Root cause: mobile API requires a JWT obtained by bootstrapping via the homepage endpoint first; all other endpoints return 441 without it. Added 6-host pool, JWT caching (50 min TTL), and auto-refresh. Fixed CLIENT_INFO fields (sp_code:"40401", X-Play-Mode:"2"). Now returns multi-language streams (Hindi/Tamil/Telugu/Portuguese dubs + originals) for movies and series.
 - v8.6.0 — Added VidLink as 15th provider (index 8); swapped dooflix↔castletv order (dooflix=6, castletv=7); provider mask is now 15 chars ("111111111111111"). VidLink proxy routes: `/api/vidlink/hls.m3u8`, `/api/vidlink/seg/:sid/:idx` (isolated prefix).
 - v8.5.0 — Added Kartoons as 14th provider (index 0); provider mask is now 14 chars ("11111111111111"). 3 new catalogs: kartoons_anime, kartoons_cartoons, kartoons_movies. `kartoons:` added to idPrefixes/resources.

@@ -7,9 +7,9 @@ const router = Router();
 const MANIFEST = {
   id: "community.castletv.standalone",
   version: "1.0.15",
-  name: "Castle TV + DahmerMovies + StreamFlix",
+  name: "Castle TV + StreamFlix",
   description:
-    "Castle TV, DahmerMovies & StreamFlix — Tamil, Hindi, English movies & series. Three providers in parallel, with subtitles.",
+    "Castle TV & StreamFlix — Tamil, Hindi, English movies & series. Two providers in parallel, with subtitles.",
   logo: "https://github.com/NivinCNC/CNCVerse-Cloud-Stream-Extension/raw/refs/heads/master/CastleTvProvider/icon.png",
   resources: ["catalog", "meta", "stream"],
   types: ["movie", "series"],
@@ -104,55 +104,6 @@ router.get("/meta/:type/:id.json", async (req: Request, res: Response): Promise<
   setCorsAndCache(res, 3600);
   const result = await handleMeta(type, stremioId);
   res.json(result);
-});
-
-router.get("/proxy/dahmer", async (req: Request, res: Response): Promise<void> => {
-  const encodedUrl = String(req.query.url ?? "");
-  if (!encodedUrl) {
-    res.status(400).send("Missing url parameter");
-    return;
-  }
-
-  let originalUrl: string;
-  try {
-    originalUrl = Buffer.from(encodedUrl, "base64url").toString("utf8");
-  } catch {
-    res.status(400).send("Invalid url encoding");
-    return;
-  }
-
-  if (!originalUrl.startsWith("https://a.111477.xyz/")) {
-    res.status(403).send("Forbidden");
-    return;
-  }
-
-  try {
-    const bulkUrl = `https://p.111477.xyz/bulk?u=${encodeURIComponent(originalUrl)}`;
-    const proxyRes = await axios.get(bulkUrl, {
-      maxRedirects: 0,
-      validateStatus: () => true,
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
-        Accept: "video/webm,video/ogg,video/*;q=0.9,*/*;q=0.5",
-        "Accept-Encoding": "identity",
-        Referer: "https://a.111477.xyz/",
-      },
-      timeout: 10000,
-    });
-
-    const location = proxyRes.headers["location"] as string | undefined;
-    if (location) {
-      res.setHeader("Access-Control-Allow-Origin", "*");
-      res.setHeader("Cache-Control", "private, max-age=300");
-      res.redirect(302, location);
-    } else {
-      res.status(502).send("No location received from upstream");
-    }
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    res.status(502).send(`Proxy error: ${msg}`);
-  }
 });
 
 router.get("/stream/:type/:id.json", async (req: Request, res: Response): Promise<void> => {
