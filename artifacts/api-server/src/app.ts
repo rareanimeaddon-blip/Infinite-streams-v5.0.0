@@ -63,8 +63,8 @@ function serveLandingPage(req: express.Request, res: express.Response) {
   const stremioUrl = defaultManifestUrl.replace(/^https?:\/\//, "stremio://");
 
   // Provider order MUST match PROVIDER_LIST in lib/provider-config.ts
-  // 0=kartoons 1=animesalt 2=rareanime 3=animedekho 4=netmirror 5=streamflix
-  // 6=castletv 7=dooflix 8=moviebox 9=meowtv 10=dahmermovies 11=hindmovies 12=fourkdhub 13=hdhub4u
+  // 0=kartoons 1=animesalt 2=rareanime 3=animedekho 4=piratexplay 5=netmirror 6=streamflix
+  // 7=dooflix 8=castletv 9=vidlink 10=moviebox 11=meowtv 12=moviesdrive 13=dahmermovies 14=hindmovies 15=fourkdhub 16=hdhub4u
   const providers: Array<{
     key: string;
     name: string;
@@ -186,6 +186,16 @@ function serveLandingPage(req: express.Request, res: express.Response) {
       category: "movies",
     },
     {
+      key: "moviesdrive",
+      name: "MoviesDrive",
+      emoji: "🚗",
+      color: "#14b8a6",
+      glow: "rgba(20,184,166,0.25)",
+      tags: ["1080p", "4K", "HubCloud", "Hindi & Dual Audio"],
+      desc: "720p/1080p/4K direct file streams from moviesdrives.my via HubCloud CDN — Hindi & dual-audio.",
+      category: "movies",
+    },
+    {
       key: "dahmermovies",
       name: "DahmerMovies",
       emoji: "💀",
@@ -274,7 +284,7 @@ function serveLandingPage(req: express.Request, res: express.Response) {
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<meta name="description" content="INFINITE STREAMS — 15 providers, one addon. Kartoons, AnimeSalt, RareAnime, AnimeDekho, NetMirror, StreamFlix, DooFlix, CastleTV, VidLink, MovieBox, MeowTV, DahmerMovies, HindMoviez, 4KHDHub, HDHub4U. Install in one click."/>
+<meta name="description" content="INFINITE STREAMS — 16 providers, one addon. Kartoons, AnimeSalt, RareAnime, AnimeDekho, NetMirror, StreamFlix, DooFlix, CastleTV, VidLink, MovieBox, MeowTV, MoviesDrive, DahmerMovies, HindMoviez, 4KHDHub, HDHub4U. Install in one click."/>
 <title>INFINITE STREAMS — Stremio Addon</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300..900;1,14..32,300..900&display=swap" rel="stylesheet"/>
@@ -491,7 +501,7 @@ footer{border-top:1px solid var(--border);padding:52px 0;text-align:center}
 
     <div class="hero-pill">
       <div class="hero-pill-dot"></div>
-      ${manifest.catalogs.length} catalogs &nbsp;·&nbsp; 15 providers &nbsp;·&nbsp; Live
+      ${manifest.catalogs.length} catalogs &nbsp;·&nbsp; 16 providers &nbsp;·&nbsp; Live
     </div>
 
     <div class="brand-logo">
@@ -503,7 +513,7 @@ footer{border-top:1px solid var(--border);padding:52px 0;text-align:center}
       <span class="h1-word2">STREAMS</span>
     </h1>
 
-    <p class="hero-sub">15 providers. One addon. Zero compromise.<br/>Movies, series &amp; anime — all in one install.</p>
+    <p class="hero-sub">16 providers. One addon. Zero compromise.<br/>Movies, series &amp; anime — all in one install.</p>
     <div class="credit-tag">Made by <a href="https://t.me/Master_si" target="_blank">@Master_si</a></div>
 
     <div class="install-box">
@@ -649,7 +659,7 @@ footer{border-top:1px solid var(--border);padding:52px 0;text-align:center}
       <img src="${BASE_PATH}/logo.png" alt="∞"/>
       <span class="footer-name">INFINITE STREAMS</span>
     </div>
-    <p class="footer-desc">15 providers, zero compromise. Movies, series &amp; anime from every corner of the web. Free forever.</p>
+    <p class="footer-desc">16 providers, zero compromise. Movies, series &amp; anime from every corner of the web. Free forever.</p>
     <div class="footer-links">
       <a href="${defaultManifestUrl}" target="_blank">manifest.json</a>
       <a href="${base}${BASE_PATH}/debug" class="footer-debug-btn">🛠 Debug Console</a>
@@ -657,7 +667,7 @@ footer{border-top:1px solid var(--border);padding:52px 0;text-align:center}
     </div>
     <div class="footer-status">
       <div class="footer-status-dot"></div>
-      By @Master_si &nbsp;·&nbsp; v${manifest.version} &nbsp;·&nbsp; 13 Providers
+      By @Master_si &nbsp;·&nbsp; v${manifest.version} &nbsp;·&nbsp; 16 Providers
     </div>
   </div>
 </footer>
@@ -667,7 +677,7 @@ footer{border-top:1px solid var(--border);padding:52px 0;text-align:center}
     <img src="${BASE_PATH}/logo.png" alt="∞"/>
     <div>
       <div class="sticky-bar-title">INFINITE STREAMS</div>
-      <div class="sticky-bar-sub">15 providers · one addon</div>
+      <div class="sticky-bar-sub">16 providers · one addon</div>
     </div>
   </div>
   <a href="${stremioUrl}" class="sticky-install" id="sticky-install-btn">
@@ -681,7 +691,7 @@ const BASE = ${JSON.stringify(base)};
 const BP = ${JSON.stringify(BASE_PATH)};
 const PROVIDER_KEYS = ${JSON.stringify(PROVIDER_LIST)};
 const PROVIDER_CATS = ${JSON.stringify(providers.map(p => p.category))};
-let mask = Array(13).fill(1);
+let mask = Array(16).fill(1);
 
 function getMask(){ return mask.join(""); }
 
