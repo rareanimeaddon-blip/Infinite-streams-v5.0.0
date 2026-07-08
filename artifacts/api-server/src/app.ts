@@ -64,7 +64,7 @@ function serveLandingPage(req: express.Request, res: express.Response) {
 
   // Provider order MUST match PROVIDER_LIST in lib/provider-config.ts
   // 0=kartoons 1=animesalt 2=rareanime 3=animedekho 4=piratexplay 5=netmirror 6=streamflix
-  // 7=dooflix 8=castletv 9=vidlink 10=moviebox 11=meowtv 12=moviesdrive 13=hdghartv 14=vaplayer 15=hindmovies 16=fourkdhub 17=hdhub4u
+  // 7=dooflix 8=castletv 9=moviebox 10=meowtv 11=moviesdrive 12=hdghartv 13=vaplayer 14=hindmovies 15=fourkdhub 16=hdhub4u
   const providers: Array<{
     key: string;
     name: string;
@@ -153,16 +153,6 @@ function serveLandingPage(req: express.Request, res: express.Response) {
       glow: "rgba(249,115,22,0.25)",
       tags: ["Tamil", "Hindi", "English", "Multi-Lang"],
       desc: "Multi-language streaming with Tamil, Hindi & English content via title-matched Jaccard scoring.",
-      category: "movies",
-    },
-    {
-      key: "vidlink",
-      name: "VidLink",
-      emoji: "🔗",
-      color: "#06b6d4",
-      glow: "rgba(6,182,212,0.25)",
-      tags: ["4K", "1080p", "HLS", "Session-Proxy"],
-      desc: "4K/1080p/720p HLS streams via VidLink.pro with session-based segment proxy and TMDB encryption.",
       category: "movies",
     },
     {
@@ -294,7 +284,7 @@ function serveLandingPage(req: express.Request, res: express.Response) {
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<meta name="description" content="INFINITE STREAMS — 18 providers, one addon. Kartoons, AnimeSalt, RareAnime, AnimeDekho, NetMirror, StreamFlix, DooFlix, CastleTV, VidLink, MovieBox, MeowTV, MoviesDrive, HDGharTV, VaPlayer, HindMoviez, 4KHDHub, HDHub4U. Install in one click."/>
+<meta name="description" content="INFINITE STREAMS — 17 providers, one addon. Kartoons, AnimeSalt, RareAnime, AnimeDekho, NetMirror, StreamFlix, DooFlix, CastleTV, MovieBox, MeowTV, MoviesDrive, HDGharTV, VaPlayer, HindMoviez, 4KHDHub, HDHub4U. Install in one click."/>
 <title>INFINITE STREAMS — Stremio Addon</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300..900;1,14..32,300..900&display=swap" rel="stylesheet"/>

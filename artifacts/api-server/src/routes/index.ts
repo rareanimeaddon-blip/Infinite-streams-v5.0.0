@@ -6,7 +6,6 @@ import raProxyRouter from "./rareanime-proxy.js";
 import meowtvProxyRouter from "./meowtv-proxy.js";
 import stremioRouter from "./stremio.js";
 import debugRouter from "./debug.js";
-import { vidlinkRouter } from "../providers/vidlink.js";
 
 const router: IRouter = Router();
 
@@ -16,7 +15,6 @@ router.use(proxyRouter);
 router.use(netmirrorProxyRouter);
 router.use(raProxyRouter);
 router.use(meowtvProxyRouter);
-router.use(vidlinkRouter);
 router.use(stremioRouter);
 
 export default router;
