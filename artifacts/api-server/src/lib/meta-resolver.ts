@@ -248,6 +248,14 @@ export async function resolveMeta(
     ...(tmdbData?.aliases ?? []),
   ]);
   if (tmdbData?.originalTitle) aliasSet.add(tmdbData.originalTitle);
+  // Cross-alias Cinemeta <-> TMDB titles. These two sources sometimes diverge for
+  // regionally re-titled releases (e.g. a Punjabi film indexed by Cinemeta under its
+  // pre-release working title "Panjab '95" while TMDB already reflects the theatrical
+  // title "Satluj"). Streaming-site listings almost always match the newer/regional
+  // title, so both names must be tried during provider search, not just whichever one
+  // happened to win the `title` field here.
+  if (cineData?.title) aliasSet.add(cineData.title);
+  if (tmdbData?.title) aliasSet.add(tmdbData.title);
   aliasSet.delete(title);
 
   const resolved: ResolvedMeta = {

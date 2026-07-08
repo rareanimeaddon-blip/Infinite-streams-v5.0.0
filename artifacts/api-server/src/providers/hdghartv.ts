@@ -7,7 +7,7 @@
  */
 
 import { logger } from "../lib/logger.js";
-import { findBestMatch, type MatchCandidate } from "../utils/match.js";
+import { findBestMatch, findBestMatchWithRetry, type MatchCandidate } from "../utils/match.js";
 
 const HDGHARTV_API = "https://hdghartv.cc/api";
 
@@ -37,23 +37,27 @@ interface HdgSearchResult {
   series: Array<{ _id: string; title: string; tmdbId?: number }>;
 }
 
-async function searchHdghartv(title: string, kind: "movie" | "series"): Promise<string | null> {
-  const encoded = encodeURIComponent(title);
-  const data = await fetchJson<HdgSearchResult>(`${HDGHARTV_API}/search?q=${encoded}`);
-  if (!data) return null;
+async function searchHdghartv(
+  title: string,
+  kind: "movie" | "series",
+  variants: string[] = [title],
+): Promise<string | null> {
+  const searchByVariant = async (
+    variantTitle: string,
+  ): Promise<Array<MatchCandidate<{ _id: string; title: string; tmdbId?: number }>>> => {
+    const encoded = encodeURIComponent(variantTitle);
+    const data = await fetchJson<HdgSearchResult>(`${HDGHARTV_API}/search?q=${encoded}`);
+    if (!data) return [];
+    const results = kind === "movie" ? data.movies : data.series;
+    return (results ?? []).map((r) => ({ title: r.title, type: kind, raw: r }));
+  };
 
-  const results = kind === "movie" ? data.movies : data.series;
-  if (!results?.length) return null;
-
-  const candidates: MatchCandidate<{ _id: string; title: string; tmdbId?: number }>[] = results.map((r) => ({
-    title: r.title,
-    type: kind,
-    raw: r,
-  }));
-
-  const { best } = findBestMatch(
+  // Retry across every known title variant — streaming-site listings for regionally
+  // re-titled releases frequently don't match whichever title was searched first.
+  const { best } = await findBestMatchWithRetry(
     { title, type: kind },
-    candidates,
+    variants,
+    searchByVariant,
     { provider: "HDGharTV" },
   );
   if (!best) return null;
@@ -102,8 +106,9 @@ interface HdgMovie {
 export async function getHdghartvMovieStreams(
   title: string,
   imdbId?: string,
+  variants: string[] = [title],
 ): Promise<Record<string, unknown>[]> {
-  const internalId = await searchHdghartv(title, "movie");
+  const internalId = await searchHdghartv(title, "movie", variants);
   if (!internalId) {
     logger.info({ title, imdbId }, "HDGharTV: movie not found");
     return [];
@@ -142,8 +147,9 @@ export async function getHdghartvSeriesStreams(
   season: number,
   episode: number,
   imdbId?: string,
+  variants: string[] = [title],
 ): Promise<Record<string, unknown>[]> {
-  const internalId = await searchHdghartv(title, "series");
+  const internalId = await searchHdghartv(title, "series", variants);
   if (!internalId) {
     logger.info({ title, imdbId }, "HDGharTV: series not found");
     return [];

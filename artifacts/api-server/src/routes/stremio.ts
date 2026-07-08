@@ -594,42 +594,57 @@ async function getHDHub4UStreams(
   meta?: ResolvedMeta | null,
 ): Promise<Record<string, unknown>[]> {
   try {
-    const results = await hdhub4u.searchSite(title);
-    if (!results.length) {
-      logger.info({ title, type }, "HDHub4U: no search results");
+    // Retry search across every known title variant (resolved title, original-language
+    // title, Cinemeta/TMDB aliases). Regionally re-titled releases are frequently listed
+    // by the streaming site under a name that differs from whichever title Cinemeta/TMDB
+    // happened to return first — a single-shot search on `title` alone misses those.
+    const variants = meta ? buildRetryTitleVariants(meta) : [title];
+    const searchByVariant = async (
+      variantTitle: string,
+    ): Promise<Array<MatchCandidate<hdhub4u.ScrapeItem>>> => {
+      const results = await hdhub4u.searchSite(variantTitle);
+      if (results.length) {
+        logger.info(
+          { title: variantTitle, type, count: results.length, titles: results.map((r) => `${r.title}[${r.type}]`) },
+          "HDHub4U: search results",
+        );
+      }
+      // Never hard-exclude the wrong-type pool — let the shared matcher's type signal demote it.
+      return results.map((r) => ({ title: r.title, type: r.type as "movie" | "series", raw: r }));
+    };
+
+    const match = await findBestMatchWithRetry(
+      { title, originalTitle: meta?.originalTitle, aliases: meta?.aliases, year: meta?.year, type: type as "movie" | "series" },
+      variants,
+      searchByVariant,
+      { provider: "HDHub4U", threshold: 0.45 },
+    );
+    if (!match.best) {
+      logger.info({ title, type, variants }, "HDHub4U: no search results across any title variant");
       return [];
     }
-    logger.info({ title, type, count: results.length, titles: results.map((r) => `${r.title}[${r.type}]`) }, "HDHub4U: search results");
-    // Only match results of the correct content type — never serve a series page for a movie request or vice versa.
-    // Catalog mismatch fallback: if type detection in the HDHub4U catalog is wrong (e.g. a movie
-    // tagged under a web-series category), typed list will be empty — in that case fall back to
-    // all results and let the shared matcher's type-scoring signal (rather than a hard filter)
-    // demote — but not exclude — the wrong-type pool.
-    const typed = results.filter((r) => r.type === (type as "movie" | "series"));
-    const pool = typed.length > 0 ? typed : results;
-    const minScore = typed.length > 0 ? 0.45 : 0.6;
-
-    const candidates: MatchCandidate<typeof pool[number]>[] = pool.map((r) => ({
-      title: r.title,
-      type: r.type as "movie" | "series",
-      raw: r,
-    }));
-    const match = findBestMatch(
-      { title, originalTitle: meta?.originalTitle, aliases: meta?.aliases, year: meta?.year, type: type as "movie" | "series" },
-      candidates,
-      { provider: "HDHub4U", query: title, threshold: minScore },
-    );
-    if (!match.best) return [];
     const best = match.best.raw;
-    if (typed.length === 0) {
-      logger.info({ title, type, bestType: best.type, score: match.score }, "HDHub4U: type-fallback match");
+    // Layer 2 — IMDB ID cross-check: resolve the matched title+year through TMDB and
+    // confirm it maps to the requested IMDB ID. Only rejects on a CONFIRMED mismatch;
+    // an inconclusive TMDB lookup (null) always passes through untouched.
+    let hdIdVerified = false;
+    if (imdbId?.startsWith("tt")) {
+      const resolvedId = await tmdbTitleToImdbId(best.title, meta?.year, type as "movie" | "series").catch(() => null);
+      if (resolvedId && resolvedId !== imdbId) {
+        logger.info(
+          { title, expectedImdbId: imdbId, resolvedId, matchedTitle: best.title },
+          "HDHub4U: IMDB ID mismatch — rejecting match",
+        );
+        return [];
+      }
+      hdIdVerified = resolvedId === imdbId;
     }
     // Pass imdbId so extractStreams can verify the page's embedded IMDB ID matches
     const streams = await hdhub4u.extractStreams(best.url, undefined, undefined, imdbId);
     logger.info({ title, url: best.url, streams: streams.length }, "HDHub4U: streams extracted");
     const resolvedTitle = best.title;
     const resolvedType = best.type as string;
-    return streams.map((s) => ({ ...hdhub4uStreamToStremio(s, "📡 HDHub4U"), _resolvedTitle: resolvedTitle, _resolvedType: resolvedType }));
+    return streams.map((s) => ({ ...hdhub4uStreamToStremio(s, "📡 HDHub4U"), _resolvedTitle: resolvedTitle, _resolvedType: resolvedType, _idVerified: hdIdVerified }));
   } catch (err) {
     logger.error({ err, title }, "HDHub4U: crashed");
     return [];
@@ -644,38 +659,35 @@ async function getHDHub4USeriesStreams(
   meta?: ResolvedMeta | null,
 ): Promise<Record<string, unknown>[]> {
   try {
-    // Try season-specific query first; fall back to plain title if it returns nothing
-    let results = await hdhub4u.searchSite(`${title} season ${season}`);
-    if (!results.length) results = await hdhub4u.searchSite(title);
-    if (!results.length) {
-      logger.info({ title, season, episode }, "HDHub4U series: no search results");
+    // Retry across every known title variant, and within each variant try the
+    // season-specific query before falling back to the plain title.
+    const variants = meta ? buildRetryTitleVariants({ ...meta, title }) : [title];
+    const searchByVariant = async (
+      variantTitle: string,
+    ): Promise<Array<MatchCandidate<hdhub4u.ScrapeItem>>> => {
+      let results = await hdhub4u.searchSite(`${variantTitle} season ${season}`);
+      if (!results.length) results = await hdhub4u.searchSite(variantTitle);
+      if (results.length) {
+        logger.info(
+          { title: variantTitle, season, episode, count: results.length, titles: results.map((r) => `${r.title}[${r.type}]`) },
+          "HDHub4U series: search results",
+        );
+      }
+      // Never hard-exclude the wrong-type pool — let the shared matcher's type signal demote it.
+      return results.map((r) => ({ title: r.title, type: r.type as "movie" | "series", season, raw: r }));
+    };
+
+    const match = await findBestMatchWithRetry(
+      { title, originalTitle: meta?.originalTitle, aliases: meta?.aliases, year: meta?.year, type: "series", season, episode },
+      variants,
+      searchByVariant,
+      { provider: "HDHub4U-series", threshold: 0.45 },
+    );
+    if (!match.best) {
+      logger.info({ title, season, episode, variants }, "HDHub4U series: no search results across any title variant");
       return [];
     }
-    logger.info({ title, season, episode, count: results.length, titles: results.map((r) => `${r.title}[${r.type}]`) }, "HDHub4U series: search results");
-    // Only use series-typed results — never serve a movie page for a series request.
-    // Catalog mismatch fallback: if the HDHub4U catalog wrongly typed this as a movie,
-    // fall back to all results and let the shared matcher's type signal demote (not
-    // exclude) the wrong-type pool.
-    const typed = results.filter((r) => r.type === "series");
-    const pool = typed.length > 0 ? typed : results;
-    const minScore = typed.length > 0 ? 0.45 : 0.6;
-
-    const candidates: MatchCandidate<typeof pool[number]>[] = pool.map((r) => ({
-      title: r.title,
-      type: r.type as "movie" | "series",
-      season,
-      raw: r,
-    }));
-    const match = findBestMatch(
-      { title, originalTitle: meta?.originalTitle, aliases: meta?.aliases, year: meta?.year, type: "series", season, episode },
-      candidates,
-      { provider: "HDHub4U-series", query: title, threshold: minScore },
-    );
-    if (!match.best) return [];
     const best = match.best.raw;
-    if (typed.length === 0) {
-      logger.info({ title, season, episode, bestType: best.type, score: match.score }, "HDHub4U: series type-fallback match");
-    }
     // Season guard: the Typesense search may return the only available page for a
     // show even when it covers a different season (e.g. "from-season-3-..." for a
     // season-4 request).  Extract the season number from the URL slug and reject
@@ -688,11 +700,24 @@ async function getHDHub4USeriesStreams(
         return [];
       }
     }
+    // Layer 2 — IMDB ID cross-check (see getHDHub4UStreams for rationale).
+    let hdsIdVerified = false;
+    if (imdbId?.startsWith("tt")) {
+      const resolvedId = await tmdbTitleToImdbId(best.title, meta?.year, "series").catch(() => null);
+      if (resolvedId && resolvedId !== imdbId) {
+        logger.info(
+          { title, expectedImdbId: imdbId, resolvedId, matchedTitle: best.title },
+          "HDHub4U series: IMDB ID mismatch — rejecting match",
+        );
+        return [];
+      }
+      hdsIdVerified = resolvedId === imdbId;
+    }
     // Pass imdbId so extractStreams can verify the page's embedded IMDB ID matches
     const streams = await hdhub4u.extractStreams(best.url, season, episode, imdbId);
     logger.info({ title, season, episode, url: best.url, streams: streams.length }, "HDHub4U series: streams extracted");
     const resolvedTitleS = best.title;
-    return streams.map((s) => ({ ...hdhub4uStreamToStremio(s, "📡 HDHub4U"), _resolvedTitle: resolvedTitleS, _resolvedType: "series" }));
+    return streams.map((s) => ({ ...hdhub4uStreamToStremio(s, "📡 HDHub4U"), _resolvedTitle: resolvedTitleS, _resolvedType: "series", _idVerified: hdsIdVerified }));
   } catch (err) {
     logger.error({ err, title, season, episode }, "HDHub4U: series crashed");
     return [];
@@ -706,29 +731,41 @@ async function getFourkdHubStreams(
   meta?: ResolvedMeta | null,
 ): Promise<Record<string, unknown>[]> {
   try {
-    const results = await fourkdhub.searchSite(title);
-    if (!results.length) return [];
-    // Only match results of the correct content type — never serve a series page for a movie request or vice versa
-    const typed = results.filter((r) => r.type === (type as "movie" | "series"));
-    if (!typed.length) return [];
-    // Pick the best-scoring match via the shared weighted matcher — never the first result.
-    const candidates: MatchCandidate<typeof typed[number]>[] = typed.map((r) => ({
-      title: r.title,
-      type: r.type as "movie" | "series",
-      raw: r,
-    }));
-    const match = findBestMatch(
+    // Retry search across every known title variant — see HDHub4U for rationale.
+    const variants = meta ? buildRetryTitleVariants(meta) : [title];
+    const searchByVariant = async (
+      variantTitle: string,
+    ): Promise<Array<MatchCandidate<Awaited<ReturnType<typeof fourkdhub.searchSite>>[number]>>> => {
+      const results = await fourkdhub.searchSite(variantTitle);
+      // Never hard-exclude the wrong-type pool — let the shared matcher's type signal demote it.
+      return results.map((r) => ({ title: r.title, type: r.type as "movie" | "series", raw: r }));
+    };
+    const match = await findBestMatchWithRetry(
       { title, originalTitle: meta?.originalTitle, aliases: meta?.aliases, year: meta?.year, type: type as "movie" | "series" },
-      candidates,
-      { provider: "4KHDHub", query: title, threshold: 0.45 },
+      variants,
+      searchByVariant,
+      { provider: "4KHDHub", threshold: 0.45 },
     );
     if (!match.best) return [];
     const best = match.best.raw;
+    // Layer 2 — IMDB ID cross-check (see getHDHub4UStreams for rationale).
+    let fkIdVerified = false;
+    if (imdbId?.startsWith("tt")) {
+      const resolvedId = await tmdbTitleToImdbId(best.title, meta?.year, type as "movie" | "series").catch(() => null);
+      if (resolvedId && resolvedId !== imdbId) {
+        logger.info(
+          { title, expectedImdbId: imdbId, resolvedId, matchedTitle: best.title },
+          "4KHDHub: IMDB ID mismatch — rejecting match",
+        );
+        return [];
+      }
+      fkIdVerified = resolvedId === imdbId;
+    }
     // Pass imdbId so extractStreams can verify the page's embedded IMDB ID matches
     const streams = await fourkdhub.extractStreams(best.url, undefined, undefined, imdbId);
     const fk4ResolvedTitle = best.title;
     const fk4ResolvedType = best.type as string;
-    return streams.map((s) => ({ ...hdhub4uStreamToStremio(s, "🔵 4KHDHub"), _resolvedTitle: fk4ResolvedTitle, _resolvedType: fk4ResolvedType }));
+    return streams.map((s) => ({ ...hdhub4uStreamToStremio(s, "🔵 4KHDHub"), _resolvedTitle: fk4ResolvedTitle, _resolvedType: fk4ResolvedType, _idVerified: fkIdVerified }));
   } catch (err) {
     logger.error({ err, title }, "4KHDHub: crashed");
     return [];
@@ -743,24 +780,22 @@ async function getFourkdHubSeriesStreams(
   meta?: ResolvedMeta | null,
 ): Promise<Record<string, unknown>[]> {
   try {
-    // Try season-specific query first; fall back to plain title if it returns nothing
-    let results = await fourkdhub.searchSite(`${title} season ${season}`);
-    if (!results.length) results = await fourkdhub.searchSite(title);
-    if (!results.length) return [];
-    // Only use series-typed results — never serve a movie page for a series request
-    const typed = results.filter((r) => r.type === "series");
-    if (!typed.length) return [];
-    // Pick the best-scoring match via the shared weighted matcher.
-    const candidates: MatchCandidate<typeof typed[number]>[] = typed.map((r) => ({
-      title: r.title,
-      type: "series" as const,
-      season,
-      raw: r,
-    }));
-    const match = findBestMatch(
+    // Retry across every known title variant; within each, try the season-specific
+    // query before falling back to the plain title.
+    const variants = meta ? buildRetryTitleVariants({ ...meta, title }) : [title];
+    const searchByVariant = async (
+      variantTitle: string,
+    ): Promise<Array<MatchCandidate<Awaited<ReturnType<typeof fourkdhub.searchSite>>[number]>>> => {
+      let results = await fourkdhub.searchSite(`${variantTitle} season ${season}`);
+      if (!results.length) results = await fourkdhub.searchSite(variantTitle);
+      // Never hard-exclude the wrong-type pool — let the shared matcher's type signal demote it.
+      return results.map((r) => ({ title: r.title, type: r.type as "movie" | "series", season, raw: r }));
+    };
+    const match = await findBestMatchWithRetry(
       { title, originalTitle: meta?.originalTitle, aliases: meta?.aliases, year: meta?.year, type: "series", season, episode },
-      candidates,
-      { provider: "4KHDHub-series", query: title, threshold: 0.45 },
+      variants,
+      searchByVariant,
+      { provider: "4KHDHub-series", threshold: 0.45 },
     );
     if (!match.best) return [];
     const best = match.best.raw;
@@ -774,10 +809,23 @@ async function getFourkdHubSeriesStreams(
         return [];
       }
     }
+    // Layer 2 — IMDB ID cross-check (see getHDHub4UStreams for rationale).
+    let fksIdVerified = false;
+    if (imdbId?.startsWith("tt")) {
+      const resolvedId = await tmdbTitleToImdbId(best.title, meta?.year, "series").catch(() => null);
+      if (resolvedId && resolvedId !== imdbId) {
+        logger.info(
+          { title, expectedImdbId: imdbId, resolvedId, matchedTitle: best.title },
+          "4KHDHub series: IMDB ID mismatch — rejecting match",
+        );
+        return [];
+      }
+      fksIdVerified = resolvedId === imdbId;
+    }
     // Pass imdbId so extractStreams can verify the page's embedded IMDB ID matches
     const streams = await fourkdhub.extractStreams(best.url, season, episode, imdbId);
     const fk4sResolvedTitle = best.title;
-    return streams.map((s) => ({ ...hdhub4uStreamToStremio(s, "🔵 4KHDHub"), _resolvedTitle: fk4sResolvedTitle, _resolvedType: "series" }));
+    return streams.map((s) => ({ ...hdhub4uStreamToStremio(s, "🔵 4KHDHub"), _resolvedTitle: fk4sResolvedTitle, _resolvedType: "series", _idVerified: fksIdVerified }));
   } catch (err) {
     logger.error({ err, title, season, episode }, "4KHDHub: series crashed");
     return [];
@@ -852,12 +900,14 @@ async function getHdghartvStreams(
   season: number,
   episode: number,
   imdbId?: string,
+  meta?: ResolvedMeta | null,
 ): Promise<Record<string, unknown>[]> {
   try {
+    const variants = meta ? buildRetryTitleVariants({ ...meta, title }) : [title];
     if (type === "series") {
-      return await getHdghartvSeriesStreams(title, season, episode, imdbId);
+      return await getHdghartvSeriesStreams(title, season, episode, imdbId, variants);
     }
-    return await getHdghartvMovieStreams(title, imdbId);
+    return await getHdghartvMovieStreams(title, imdbId, variants);
   } catch (err) {
     logger.error({ err, title }, "HDGharTV: provider error");
     return [];
@@ -2376,7 +2426,7 @@ router.get("/stream/:type/:id.json", async (req, res) => {
         ep.has("moviebox") ? getMovieBoxStreams(meta, season, episode, req, imdbId) : Promise.resolve([]),
         ep.has("meowtv") ? getMeowTvStreams(type as "movie" | "series", imdbId, season, episode, apiBase(req), meta.title) : Promise.resolve([]),
         ep.has("moviesdrive") ? getMoviesDriveStreams(meta.title, meta.year ? String(meta.year) : undefined, type as "movie" | "series", season, episode, imdbId) : Promise.resolve([]),
-        ep.has("hdghartv") ? getHdghartvStreams(meta.title, type, season, episode, imdbId) : Promise.resolve([]),
+        ep.has("hdghartv") ? getHdghartvStreams(meta.title, type, season, episode, imdbId, meta) : Promise.resolve([]),
         ep.has("vaplayer") ? getVaPlayerStreams(imdbId, type, season, episode) : Promise.resolve([]),
         ep.has("hindmovies") ? hindmoviezGetStreams(type as "movie" | "series", imdbId, season, episode, meta.title, meta.year ? String(meta.year) : undefined) : Promise.resolve([]),
         ep.has("fourkdhub") ? (isSeries ? getFourkdHubSeriesStreams(meta.title, season!, episode!, imdbId, meta) : getFourkdHubStreams(meta.title, type, imdbId, meta)) : Promise.resolve([]),
@@ -2517,7 +2567,7 @@ router.get("/stream/:type/:id.json", async (req, res) => {
         ep2.has("moviebox") ? getMovieBoxStreams(meta, season, episode, req, id) : Promise.resolve([]),
         (ep2.has("meowtv") && hasImdb) ? getMeowTvStreams(type as "movie" | "series", meta.imdbId, season, episode, apiBase(req), meta.title) : Promise.resolve([]),
         ep2.has("moviesdrive") ? getMoviesDriveStreams(meta.title, meta.year ? String(meta.year) : undefined, type as "movie" | "series", season, episode, hasImdb ? meta.imdbId : undefined) : Promise.resolve([]),
-        ep2.has("hdghartv") ? getHdghartvStreams(meta.title, type, season, episode, hasImdb ? meta.imdbId : undefined) : Promise.resolve([]),
+        ep2.has("hdghartv") ? getHdghartvStreams(meta.title, type, season, episode, hasImdb ? meta.imdbId : undefined, meta) : Promise.resolve([]),
         (ep2.has("vaplayer") && hasImdb) ? getVaPlayerStreams(meta.imdbId, type, season, episode) : Promise.resolve([]),
         (ep2.has("hindmovies") && hasImdb) ? hindmoviezGetStreams(type as "movie" | "series", meta.imdbId, season, episode, meta.title, meta.year ? String(meta.year) : undefined) : Promise.resolve([]),
         ep2.has("fourkdhub") ? (isSeries2 ? getFourkdHubSeriesStreams(meta.title, season!, episode!, hasImdb ? meta.imdbId : undefined, meta) : getFourkdHubStreams(meta.title, type, hasImdb ? meta.imdbId : undefined, meta)) : Promise.resolve([]),
