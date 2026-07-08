@@ -64,7 +64,7 @@ function serveLandingPage(req: express.Request, res: express.Response) {
 
   // Provider order MUST match PROVIDER_LIST in lib/provider-config.ts
   // 0=kartoons 1=animesalt 2=rareanime 3=animedekho 4=piratexplay 5=netmirror 6=streamflix
-  // 7=dooflix 8=castletv 9=moviebox 10=meowtv 11=moviesdrive 12=hdghartv 13=vaplayer 14=hindmovies 15=fourkdhub 16=hdhub4u
+  // 7=dooflix 8=castletv 9=onetouchtv 10=vidlink 11=moviebox 12=meowtv 13=moviesdrive 14=hdghartv 15=vaplayer 16=hindmovies 17=fourkdhub 18=hdhub4u
   const providers: Array<{
     key: string;
     name: string;
@@ -153,6 +153,26 @@ function serveLandingPage(req: express.Request, res: express.Response) {
       glow: "rgba(249,115,22,0.25)",
       tags: ["Tamil", "Hindi", "English", "Multi-Lang"],
       desc: "Multi-language streaming with Tamil, Hindi & English content via title-matched Jaccard scoring.",
+      category: "movies",
+    },
+    {
+      key: "onetouchtv",
+      name: "OneTouchTV",
+      emoji: "📺",
+      color: "#7ec8e3",
+      glow: "rgba(126,200,227,0.25)",
+      tags: ["Asian Dramas", "Anime", "Movies", "AES-Encrypted API"],
+      desc: "Asian dramas, anime & movies via AES-256-CBC decrypted API (api3.devcorp.me) with title & region matching.",
+      category: "movies",
+    },
+    {
+      key: "vidlink",
+      name: "VidLink",
+      emoji: "🔗",
+      color: "#06b6d4",
+      glow: "rgba(6,182,212,0.25)",
+      tags: ["4K", "1080p", "720p", "WASM CDN"],
+      desc: "4K/1080p/720p MP4 streams via VidLink.pro with Go WASM-based CDN encryption and proxy redirect.",
       category: "movies",
     },
     {
@@ -284,7 +304,7 @@ function serveLandingPage(req: express.Request, res: express.Response) {
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<meta name="description" content="INFINITE STREAMS — 17 providers, one addon. Kartoons, AnimeSalt, RareAnime, AnimeDekho, NetMirror, StreamFlix, DooFlix, CastleTV, MovieBox, MeowTV, MoviesDrive, HDGharTV, VaPlayer, HindMoviez, 4KHDHub, HDHub4U. Install in one click."/>
+<meta name="description" content="INFINITE STREAMS — 19 providers, one addon. Kartoons, AnimeSalt, RareAnime, AnimeDekho, NetMirror, StreamFlix, DooFlix, CastleTV, OneTouchTV, VidLink, MovieBox, MeowTV, MoviesDrive, HDGharTV, VaPlayer, HindMoviez, 4KHDHub, HDHub4U. Install in one click."/>
 <title>INFINITE STREAMS — Stremio Addon</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300..900;1,14..32,300..900&display=swap" rel="stylesheet"/>
