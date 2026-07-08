@@ -1,5 +1,6 @@
 import axios from "axios";
 import { logger } from "../lib/logger.js";
+import { findBestMatch, type MatchCandidate } from "../utils/match.js";
 
 const KARTOONS_API = "https://api.kartoons.me/api";
 
@@ -136,31 +137,26 @@ export async function searchKartoonsRest(
     return null;
   }
 
-  const scored = list.map((item) => {
-    const t = item.title.toLowerCase();
-    const q = title.toLowerCase();
-    let score = 0;
-    if (t === q) score = 100;
-    else if (t.includes(q) || q.includes(t)) score = 80;
-    else {
-      const tw = t.split(/\s+/);
-      const qw = q.split(/\s+/);
-      score =
-        (tw.filter((w) => qw.includes(w)).length /
-          Math.max(tw.length, qw.length)) *
-        60;
-    }
-    return { item, score };
-  });
+  const isMovie = type === "movie";
+  const candidates: MatchCandidate<ApiShow | ApiMovie>[] = list.map((item) => ({
+    title: item.title,
+    year: isMovie ? (item as ApiMovie).releaseYear : (item as ApiShow).startYear,
+    type: isMovie ? ("movie" as const) : ("series" as const),
+    raw: item,
+  }));
 
-  const best = scored.sort((a, b) => b.score - a.score)[0];
-  if (!best || best.score < 30) {
+  const { best: bestMatch } = findBestMatch(
+    { title, type: isMovie ? "movie" : "series" },
+    candidates,
+    { provider: "Kartoons", query: title },
+  );
+
+  if (!bestMatch) {
     setCache(cacheKey, null, 1800);
     return null;
   }
 
-  const raw = best.item;
-  const isMovie = type === "movie";
+  const raw = bestMatch.raw;
   const res: KartoonsItem = {
     id: raw._id,
     title: raw.title,

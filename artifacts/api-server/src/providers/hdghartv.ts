@@ -7,6 +7,7 @@
  */
 
 import { logger } from "../lib/logger.js";
+import { findBestMatch, type MatchCandidate } from "../utils/match.js";
 
 const HDGHARTV_API = "https://hdghartv.cc/api";
 
@@ -44,8 +45,19 @@ async function searchHdghartv(title: string, kind: "movie" | "series"): Promise<
   const results = kind === "movie" ? data.movies : data.series;
   if (!results?.length) return null;
 
-  const exact = results.find((r) => r.title.toLowerCase() === title.toLowerCase());
-  return (exact ?? results[0])!._id;
+  const candidates: MatchCandidate<{ _id: string; title: string; tmdbId?: number }>[] = results.map((r) => ({
+    title: r.title,
+    type: kind,
+    raw: r,
+  }));
+
+  const { best } = findBestMatch(
+    { title, type: kind },
+    candidates,
+    { provider: "HDGharTV" },
+  );
+  if (!best) return null;
+  return best.raw._id;
 }
 
 interface HdgStreamingLink {

@@ -3,6 +3,7 @@ import * as cheerio from "cheerio";
 import type { AnyNode } from "domhandler";
 import { logger } from "../../lib/logger.js";
 import { makeProxiedUrl } from "../../lib/proxy-fetch.js";
+import { findBestMatch } from "../../utils/match.js";
 
 const BASE_URL = "https://www.rareanimes.buzz";
 const ATOON_BASE = "https://store.animetoonhindi.com";
@@ -1694,19 +1695,27 @@ export async function findAndScrapeAtoonEpisodes(slug: string): Promise<EpisodeL
     results.push({ url: m[1], archiveId: parseInt(m[2], 10), title: m[3].trim() });
   }
 
-  let filtered = results.filter((r) => !/telugu|tamil|malayalam|bengali/i.test(r.title));
-  if (season !== null) {
-    const exact = new RegExp(`\\bseason\\s+0*${season}\\b`, "i");
-    const sf = filtered.filter((r) => exact.test(r.title));
-    if (sf.length > 0) filtered = sf;
-  }
+  // Pre-filter: drop categorically wrong content (regional-language dubs unrelated to Hindi)
+  const filtered = results.filter((r) => !/telugu|tamil|malayalam|bengali/i.test(r.title));
 
-  const best =
-    filtered.find((r) => /MultiQuality/i.test(r.title)) ||
-    filtered.find((r) => /QuickMulti/i.test(r.title)) ||
-    filtered[0];
+  const matchQuery = {
+    title: query,
+    ...(season !== null ? { type: "series" as const, season } : {}),
+  };
 
-  if (!best) { atoonPageCache.set(slug, null); return []; }
+  const candidates = filtered.map((r) => ({
+    title: r.title,
+    ...(season !== null ? { type: "series" as const, season } : {}),
+    raw: r,
+  }));
+
+  const { best: matchResult } = findBestMatch(matchQuery, candidates, {
+    provider: "RareAnime/Atoon",
+    query,
+  });
+
+  if (!matchResult) { atoonPageCache.set(slug, null); return []; }
+  const best = matchResult.raw;
   atoonPageCache.set(slug, best.url);
   return getAtoonEpisodeLinks(best.archiveId);
 }

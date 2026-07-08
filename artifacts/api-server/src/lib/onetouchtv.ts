@@ -1,6 +1,7 @@
 import { createDecipheriv } from "crypto";
 import { logger } from "./logger.js";
 import { getEpisodesPerSeason } from "./cinemeta.js";
+import { findBestMatch, type MatchCandidate, type ContentType } from "../utils/match.js";
 
 const MAIN_URL = "https://api3.devcorp.me";
 // 32-byte AES key and 16-byte IV (extracted from the original obfuscated plugin)
@@ -160,40 +161,6 @@ function isTypeCompatible(
 
 // ------- Scoring / Matching -------
 
-function normalizeTitle(title: string): string {
-  return title
-    .toLowerCase()
-    .replace(/\s*\(\d{4}\)\s*$/, "")      // strip trailing (year)
-    .replace(/\s*season\s+\d+\s*/i, " ")  // strip "Season N"
-    .replace(/[^\w\s]/g, " ")
-    .replace(/\b(the|a|an)\b/g, "")       // strip articles
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function titleScore(query: string, candidate: string): number {
-  const a = normalizeTitle(query);
-  const b = normalizeTitle(candidate);
-  if (a === b) return 1.0;
-
-  const tokA = new Set(a.split(" ").filter(Boolean));
-  const tokB = new Set(b.split(" ").filter(Boolean));
-  const intersection = [...tokA].filter((t) => tokB.has(t));
-  const union = new Set([...tokA, ...tokB]);
-  return union.size === 0 ? 0 : intersection.length / union.size;
-}
-
-function yearScore(targetYear: number | null, candidateYear: string): number {
-  if (!targetYear) return 0.5;
-  const cy = parseInt(candidateYear, 10);
-  if (isNaN(cy)) return 0.3;
-  const diff = Math.abs(cy - targetYear);
-  if (diff === 0) return 1.0;
-  if (diff === 1) return 0.6;
-  if (diff <= 3) return 0.3;
-  return 0.05;
-}
-
 function contentRegion(country: string): string {
   const c = country.toLowerCase();
   if (c.includes("korea")) return "korean";
@@ -211,7 +178,7 @@ function contentRegion(country: string): string {
   return "other";
 }
 
-function findBestMatch(
+function findBestOttMatch(
   results: SearchResult[],
   title: string,
   year: number | null,
@@ -223,11 +190,9 @@ function findBestMatch(
 
   const requestedRegion = requestedCountry ? contentRegion(requestedCountry) : null;
 
-  let best: { result: SearchResult; score: number } | null = null;
-
-  for (const r of results) {
-    if (!isTypeCompatible(stremioType, r.type)) continue;
-
+  // Filter by type compatibility and region before passing to shared matcher
+  const filtered = results.filter((r) => {
+    if (!isTypeCompatible(stremioType, r.type)) return false;
     if (requestedRegion && requestedRegion !== "other" && r.country) {
       const candidateRegion = contentRegion(r.country);
       if (candidateRegion !== "other" && candidateRegion !== requestedRegion) {
@@ -235,50 +200,34 @@ function findBestMatch(
           { title, candidate: r.title, requestedRegion, candidateRegion },
           "OneTouchTV: skipping cross-region candidate"
         );
-        continue;
+        return false;
       }
     }
+    return true;
+  });
 
-    const ts = titleScore(title, r.title);
-    const ys = yearScore(year, r.year);
-    let score = ts * 0.75 + ys * 0.25;
+  if (filtered.length === 0) return null;
 
-    if (targetSeason && targetSeason > 0) {
-      const targetSeasonRe = new RegExp(`\\bseason\\s+${targetSeason}\\b`, "i");
-      const anySeasonRe = /\bseason\s+(\d+)\b/i;
-      const hasTargetSeason = targetSeasonRe.test(r.title);
-      const otherSeasonMatch = anySeasonRe.exec(r.title);
-      const hasOtherSeason =
-        otherSeasonMatch !== null &&
-        parseInt(otherSeasonMatch[1], 10) !== targetSeason;
+  const candidates: MatchCandidate<SearchResult>[] = filtered.map((r) => ({
+    title: r.title,
+    year: parseInt(r.year, 10) || undefined,
+    type: stremioType as ContentType,
+    season: targetSeason ?? undefined,
+    raw: r,
+  }));
 
-      if (hasTargetSeason) {
-        score += 0.4;
-      } else if (hasOtherSeason) {
-        score -= 0.4;
-      }
-    }
-
-    if (!best || score > best.score) {
-      if (ts >= 0.5) {
-        best = { result: r, score };
-      }
-    }
-  }
-
-  if (!best || best.score < 0.5) {
-    logger.info(
-      { title, bestScore: best?.score },
-      "OneTouchTV: no confident match"
-    );
-    return null;
-  }
-
-  logger.info(
-    { title, matchTitle: best.result.title, score: best.score },
-    "OneTouchTV: matched"
+  const { best } = findBestMatch(
+    {
+      title,
+      year: year ?? undefined,
+      type: stremioType,
+      season: targetSeason ?? undefined,
+    },
+    candidates,
+    { provider: "OneTouchTV" },
   );
-  return best.result;
+
+  return best ? best.raw : null;
 }
 
 // ------- Public API -------
@@ -371,7 +320,7 @@ export async function getStreams(
   for (const keyword of searchKeywords) {
     const results = await searchContent(keyword);
     const searchYear = keyword !== title && season && season > 1 ? null : year;
-    const match = findBestMatch(results, keyword, searchYear, type, season, country);
+    const match = findBestOttMatch(results, keyword, searchYear, type, season, country);
     if (match) {
       matchResult = match;
       break;

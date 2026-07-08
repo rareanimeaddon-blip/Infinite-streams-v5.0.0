@@ -2,6 +2,7 @@ import { spawn, execSync } from "node:child_process";
 import { tmdbTitleToImdbId } from "../lib/tmdb-verify.js";
 import { logger } from "../lib/logger.js";
 import { BASE_PATH } from "../lib/base-path.js";
+import { findBestMatch, type MatchCandidate } from "../utils/match.js";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -423,11 +424,24 @@ async function extractServiceStreams(
   const searchJson = (await searchResp.json()) as {
     searchResult?: Array<{ t?: string; id?: string }>;
   };
-  const candidates = searchJson.searchResult ?? [];
-  const ranked = rankCandidates(candidates, title);
-  if (ranked.length === 0) return [];
+  const rawCandidates = searchJson.searchResult ?? [];
+  if (rawCandidates.length === 0) return [];
 
-  let finalId = ranked[0]!.id!;
+  const matchCandidates: MatchCandidate<{ t?: string; id?: string }>[] = rawCandidates.map((c) => ({
+    title: c.t ?? "",
+    type: mediaType,
+    raw: c,
+  }));
+
+  const { best: bestCandidate } = findBestMatch(
+    { title, type: mediaType },
+    matchCandidates,
+    { provider: "NetMirror" },
+  );
+  if (!bestCandidate) return [];
+
+  const ranked = [bestCandidate.raw];
+  let finalId = bestCandidate.raw.id!;
 
   // IMDB ID cross-check (movies): verify ranked[0] title maps to the expected IMDB ID.
   // Guards against same-named remakes / regional variants (null = unverified → pass through).

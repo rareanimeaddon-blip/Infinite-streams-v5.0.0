@@ -12,6 +12,7 @@
 
 import * as cheerio from "cheerio";
 import * as nodeCrypto from "crypto";
+import { findBestMatch, type MatchCandidate } from "../utils/match.js";
 
 const BASE_URL = "https://piratexplay.cc";
 
@@ -1248,33 +1249,24 @@ function buildSearchQueries(title: string): string[] {
 }
 
 /**
- * Score a list of cards against a normalised target title.
- * Returns the best card or null if no match found.
+ * Score a list of cards against a target title using the shared matching utility.
+ * Returns the best card or null if no match clears threshold.
  */
 function scoreBest(
   candidates: AnimeCard[],
-  titleLower: string,
-  titleNorm: string,
+  title: string,
 ): AnimeCard | null {
-  // Spaceless version handles "Shinchan" (Cinemeta) ↔ "Shin Chan" (PirateXPlay)
-  const titleNoSpaces = titleNorm.replace(/\s+/g, "");
-
-  const scored = candidates
-    .map((c) => {
-      const cl = c.title.toLowerCase();
-      const cn = normaliseTitle(c.title);
-      const cnNoSpaces = cn.replace(/\s+/g, "");
-      const score =
-        cl === titleLower || cn === titleNorm || cnNoSpaces === titleNoSpaces ? 4  // exact (including spaceless)
-        : cl.includes(titleLower) || cn.includes(titleNorm) ? 3  // contains full
-        : titleLower.includes(cl) || titleNorm.includes(cn) ? 2  // title contains card name
-        : (titleNorm.split(" ").some((w) => w.length > 3 && cn.includes(w))) ? 1
-        : 0;
-      return { card: c, score };
-    })
-    .filter((x) => x.score > 0)
-    .sort((a, b) => b.score - a.score);
-  return scored[0]?.card ?? null;
+  const mapped: MatchCandidate<AnimeCard>[] = candidates.map((c) => ({
+    title: c.title,
+    type: c.type === "movies" ? "movie" : "series",
+    raw: c,
+  }));
+  const { best } = findBestMatch<AnimeCard>(
+    { title },
+    mapped,
+    { provider: "PirateXPlay", query: title, quiet: true },
+  );
+  return best?.raw ?? null;
 }
 
 /**
@@ -1293,8 +1285,6 @@ export async function fetchStreamsByTitle(
 ): Promise<StreamResult[]> {
   // PirateXPlay ContentType is "movies" for movies, "series" for series/anime
   const pxpType: ContentType = stremioType === "movie" ? "movies" : "series";
-  const titleLower = title.toLowerCase();
-  const titleNorm = normaliseTitle(title);
 
   const queries = buildSearchQueries(title);
 
@@ -1313,7 +1303,7 @@ export async function fetchStreamsByTitle(
     const typedCards = allCards.filter((c) => c.type === pxpType);
     const candidates = typedCards.length > 0 ? typedCards : allCards;
 
-    const candidate = scoreBest(candidates, titleLower, titleNorm);
+    const candidate = scoreBest(candidates, title);
     if (candidate) {
       best = candidate;
       break; // found a confident match — stop trying more queries

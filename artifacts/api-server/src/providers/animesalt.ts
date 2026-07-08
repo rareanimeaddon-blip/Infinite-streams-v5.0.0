@@ -1,5 +1,6 @@
 import { logger } from "../lib/logger.js";
 import { setPlayerApiResult } from "../lib/animesalt-player-cache.js";
+import { findBestMatch, type MatchCandidate } from "../utils/match.js";
 
 const TMDB_KEY = "d80ba92bc7cefe3359668d30d06f3305";
 const BASE = "https://animesalt.ac";
@@ -101,48 +102,24 @@ async function searchSite(
 
   if (filtered.length === 0) return [];
 
-  let candidates: SearchResult[];
-  if (year) {
-    const withYear = filtered.filter((r) => r.year && Math.abs(r.year - year) <= 1);
-    const withoutYear = filtered.filter((r) => !r.year);
-    candidates =
-      withYear.length > 0 ? withYear : withoutYear.length > 0 ? withoutYear : filtered;
-  } else {
-    candidates = filtered;
-  }
+  const matchCandidates: MatchCandidate<SearchResult>[] = filtered.map((r) => ({
+    title: r.title,
+    year: r.year ?? undefined,
+    raw: r,
+  }));
 
-  const cleanSearch = cleanTitle(title);
+  const { best, ranked } = findBestMatch(
+    { title, year: year ?? undefined },
+    matchCandidates,
+    { provider: "AnimeSalt", query: title },
+  );
 
-  function sigWords(s: string): string[] {
-    const stops = new Set(["the", "a", "an", "of", "in", "to", "and", "or", "with"]);
-    return s.split(" ").filter((w) => w.length > 2 && !stops.has(w));
-  }
-
-  function titleScore(candidate: string): number {
-    const cleanC = cleanTitle(candidate);
-    if (cleanC === cleanSearch) return 1.0;
-    if (cleanC.includes(cleanSearch) && cleanSearch.length >= 5) return 0.9;
-    if (cleanSearch.includes(cleanC) && cleanC.length >= 5) return 0.85;
-    const qSig = sigWords(cleanSearch);
-    const cSig = new Set(sigWords(cleanC));
-    if (qSig.length === 0) return cleanC.includes(cleanSearch) ? 0.5 : 0;
-    const overlap = qSig.filter((w) => cSig.has(w)).length;
-    if (overlap === 0) return 0;
-    const union = new Set([...qSig, ...cSig]);
-    return (overlap / qSig.length) * 0.65 + (overlap / union.size) * 0.35;
-  }
-
-  const scored = candidates
-    .map((r) => ({ r, score: titleScore(r.title) }))
-    .filter(({ score }) => score >= 0.35)
-    .sort((a, b) => b.score - a.score);
-
-  if (scored.length === 0) {
-    logger.info({ title, candidateCount: candidates.length }, "AnimeSalt: no candidate passed title similarity threshold");
+  if (!best) {
     return [];
   }
 
-  return scored.map(({ r }) => r);
+  // Return best first, then remaining ranked candidates (for callers that iterate)
+  return ranked.map(({ candidate }) => candidate.raw);
 }
 
 function getEpisodeUrlFromHtml(

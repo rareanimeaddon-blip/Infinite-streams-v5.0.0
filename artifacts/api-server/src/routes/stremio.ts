@@ -54,6 +54,7 @@ import {
 import { resolveExtractor, type Stream as ADStream } from "../extractors/animedekho/index.js";
 import { fetchStreamsByTitle as pxpFetchStreamsByTitle, type StreamResult as PxpStreamResult } from "../providers/piratexplay.js";
 import { titleSimilarityScore } from "../utils/title-score.js";
+import { findBestMatch, findBestMatchWithRetry, buildRetryTitleVariants, type MatchCandidate } from "../utils/match.js";
 import { tmdbTitleToImdbId } from "../lib/tmdb-verify.js";
 import { filterVerifiedStreams, PROVIDER_VERIFY_REPORT, type VerifyContext } from "../lib/stream-verify.js";
 import {
@@ -586,24 +587,11 @@ function hdhub4uStreamToStremio(
   };
 }
 
-// Returns true when titleA and titleB share at least one meaningful word (3+ chars).
-// Used as a secondary match gate after prefix check fails — prevents completely
-// unrelated titles (e.g. "Kabir Singh" ↔ "The Ransom") while still accepting
-// translated/alternate-titled shows (e.g. "Crayon Shin-chan" ↔ "Shin Chan").
-function titleWordOverlap(titleA: string, titleB: string): boolean {
-  // Strip hyphens BEFORE splitting so "Shin-chan" → "shinchan" (one token),
-  // which then directly matches the compound spelling "Shinchan".
-  const norm = (s: string) =>
-    s.toLowerCase().replace(/-/g, "").replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
-  const wordsA = norm(titleA).split(" ").filter((w) => w.length >= 3);
-  const setB   = new Set(norm(titleB).split(" ").filter((w) => w.length >= 3));
-  return wordsA.some((w) => setB.has(w));
-}
-
 async function getHDHub4UStreams(
   title: string,
   type: string,
   imdbId?: string,
+  meta?: ResolvedMeta | null,
 ): Promise<Record<string, unknown>[]> {
   try {
     const results = await hdhub4u.searchSite(title);
@@ -615,29 +603,32 @@ async function getHDHub4UStreams(
     // Only match results of the correct content type — never serve a series page for a movie request or vice versa.
     // Catalog mismatch fallback: if type detection in the HDHub4U catalog is wrong (e.g. a movie
     // tagged under a web-series category), typed list will be empty — in that case fall back to
-    // all results but require a higher similarity score (0.7) to avoid false matches.
+    // all results and let the shared matcher's type-scoring signal (rather than a hard filter)
+    // demote — but not exclude — the wrong-type pool.
     const typed = results.filter((r) => r.type === (type as "movie" | "series"));
     const pool = typed.length > 0 ? typed : results;
-    const minScore = typed.length > 0 ? 0.5 : 0.7;
-    // Score all candidates with word-overlap gate + similarity ranking.
-    const withOverlap = pool.filter((r) => titleWordOverlap(title, r.title));
-    const scored = withOverlap
-      .map((r) => ({ r, score: titleSimilarityScore(title, r.title) }))
-      .sort((a, b) => b.score - a.score);
-    const best = scored[0];
-    logger.info({
-      title, type, typed: typed.length, pool: pool.length, withOverlap: withOverlap.length,
-      best: best ? `${best.r.title}[${best.r.type}] score=${best.score.toFixed(2)}` : "none", minScore,
-    }, "HDHub4U: scoring");
-    if (!best || best.score < minScore) return [];
+    const minScore = typed.length > 0 ? 0.45 : 0.6;
+
+    const candidates: MatchCandidate<typeof pool[number]>[] = pool.map((r) => ({
+      title: r.title,
+      type: r.type as "movie" | "series",
+      raw: r,
+    }));
+    const match = findBestMatch(
+      { title, originalTitle: meta?.originalTitle, aliases: meta?.aliases, year: meta?.year, type: type as "movie" | "series" },
+      candidates,
+      { provider: "HDHub4U", query: title, threshold: minScore },
+    );
+    if (!match.best) return [];
+    const best = match.best.raw;
     if (typed.length === 0) {
-      logger.info({ title, type, bestType: best.r.type, score: best.score }, "HDHub4U: type-fallback match");
+      logger.info({ title, type, bestType: best.type, score: match.score }, "HDHub4U: type-fallback match");
     }
     // Pass imdbId so extractStreams can verify the page's embedded IMDB ID matches
-    const streams = await hdhub4u.extractStreams(best.r.url, undefined, undefined, imdbId);
-    logger.info({ title, url: best.r.url, streams: streams.length }, "HDHub4U: streams extracted");
-    const resolvedTitle = best.r.title;
-    const resolvedType = best.r.type as string;
+    const streams = await hdhub4u.extractStreams(best.url, undefined, undefined, imdbId);
+    logger.info({ title, url: best.url, streams: streams.length }, "HDHub4U: streams extracted");
+    const resolvedTitle = best.title;
+    const resolvedType = best.type as string;
     return streams.map((s) => ({ ...hdhub4uStreamToStremio(s, "📡 HDHub4U"), _resolvedTitle: resolvedTitle, _resolvedType: resolvedType }));
   } catch (err) {
     logger.error({ err, title }, "HDHub4U: crashed");
@@ -650,6 +641,7 @@ async function getHDHub4USeriesStreams(
   season: number,
   episode: number,
   imdbId?: string,
+  meta?: ResolvedMeta | null,
 ): Promise<Record<string, unknown>[]> {
   try {
     // Try season-specific query first; fall back to plain title if it returns nothing
@@ -662,40 +654,44 @@ async function getHDHub4USeriesStreams(
     logger.info({ title, season, episode, count: results.length, titles: results.map((r) => `${r.title}[${r.type}]`) }, "HDHub4U series: search results");
     // Only use series-typed results — never serve a movie page for a series request.
     // Catalog mismatch fallback: if the HDHub4U catalog wrongly typed this as a movie,
-    // fall back to all results but require a higher similarity score (0.7).
+    // fall back to all results and let the shared matcher's type signal demote (not
+    // exclude) the wrong-type pool.
     const typed = results.filter((r) => r.type === "series");
     const pool = typed.length > 0 ? typed : results;
-    const minScore = typed.length > 0 ? 0.5 : 0.7;
-    // Pick the best-matching result (highest similarity, word-overlap gated)
-    const withOverlap = pool.filter((r) => titleWordOverlap(title, r.title));
-    const scored = withOverlap
-      .map((r) => ({ r, score: titleSimilarityScore(title, r.title) }))
-      .sort((a, b) => b.score - a.score);
-    const best = scored[0];
-    logger.info({
-      title, season, episode, typed: typed.length, pool: pool.length, withOverlap: withOverlap.length,
-      best: best ? `${best.r.title}[${best.r.type}] score=${best.score.toFixed(2)}` : "none", minScore,
-    }, "HDHub4U series: scoring");
-    if (!best || best.score < minScore) return [];
+    const minScore = typed.length > 0 ? 0.45 : 0.6;
+
+    const candidates: MatchCandidate<typeof pool[number]>[] = pool.map((r) => ({
+      title: r.title,
+      type: r.type as "movie" | "series",
+      season,
+      raw: r,
+    }));
+    const match = findBestMatch(
+      { title, originalTitle: meta?.originalTitle, aliases: meta?.aliases, year: meta?.year, type: "series", season, episode },
+      candidates,
+      { provider: "HDHub4U-series", query: title, threshold: minScore },
+    );
+    if (!match.best) return [];
+    const best = match.best.raw;
     if (typed.length === 0) {
-      logger.info({ title, season, episode, bestType: best.r.type, score: best.score }, "HDHub4U: series type-fallback match");
+      logger.info({ title, season, episode, bestType: best.type, score: match.score }, "HDHub4U: series type-fallback match");
     }
     // Season guard: the Typesense search may return the only available page for a
     // show even when it covers a different season (e.g. "from-season-3-..." for a
     // season-4 request).  Extract the season number from the URL slug and reject
     // pages that clearly belong to a different season.
-    const urlSeasonMatch = /season[_-]?(\d+)/i.exec(best.r.url);
+    const urlSeasonMatch = /season[_-]?(\d+)/i.exec(best.url);
     if (urlSeasonMatch) {
       const urlSeason = parseInt(urlSeasonMatch[1]!, 10);
       if (urlSeason !== season) {
-        logger.info({ title, season, episode, urlSeason, url: best.r.url }, "HDHub4U series: season mismatch in URL — skipping");
+        logger.info({ title, season, episode, urlSeason, url: best.url }, "HDHub4U series: season mismatch in URL — skipping");
         return [];
       }
     }
     // Pass imdbId so extractStreams can verify the page's embedded IMDB ID matches
-    const streams = await hdhub4u.extractStreams(best.r.url, season, episode, imdbId);
-    logger.info({ title, season, episode, url: best.r.url, streams: streams.length }, "HDHub4U series: streams extracted");
-    const resolvedTitleS = best.r.title;
+    const streams = await hdhub4u.extractStreams(best.url, season, episode, imdbId);
+    logger.info({ title, season, episode, url: best.url, streams: streams.length }, "HDHub4U series: streams extracted");
+    const resolvedTitleS = best.title;
     return streams.map((s) => ({ ...hdhub4uStreamToStremio(s, "📡 HDHub4U"), _resolvedTitle: resolvedTitleS, _resolvedType: "series" }));
   } catch (err) {
     logger.error({ err, title, season, episode }, "HDHub4U: series crashed");
@@ -707,6 +703,7 @@ async function getFourkdHubStreams(
   title: string,
   type: string,
   imdbId?: string,
+  meta?: ResolvedMeta | null,
 ): Promise<Record<string, unknown>[]> {
   try {
     const results = await fourkdhub.searchSite(title);
@@ -714,18 +711,23 @@ async function getFourkdHubStreams(
     // Only match results of the correct content type — never serve a series page for a movie request or vice versa
     const typed = results.filter((r) => r.type === (type as "movie" | "series"));
     if (!typed.length) return [];
-    // Pick the best-scoring match (similarity-ranked, word-overlap gated) rather than
-    // the first result — search results can surface loosely-related titles first.
-    const scored = typed
-      .filter((r) => titleWordOverlap(title, r.title))
-      .map((r) => ({ r, score: titleSimilarityScore(title, r.title) }))
-      .sort((a, b) => b.score - a.score);
-    const best = scored[0];
-    if (!best || best.score < 0.5) return [];
+    // Pick the best-scoring match via the shared weighted matcher — never the first result.
+    const candidates: MatchCandidate<typeof typed[number]>[] = typed.map((r) => ({
+      title: r.title,
+      type: r.type as "movie" | "series",
+      raw: r,
+    }));
+    const match = findBestMatch(
+      { title, originalTitle: meta?.originalTitle, aliases: meta?.aliases, year: meta?.year, type: type as "movie" | "series" },
+      candidates,
+      { provider: "4KHDHub", query: title, threshold: 0.45 },
+    );
+    if (!match.best) return [];
+    const best = match.best.raw;
     // Pass imdbId so extractStreams can verify the page's embedded IMDB ID matches
-    const streams = await fourkdhub.extractStreams(best.r.url, undefined, undefined, imdbId);
-    const fk4ResolvedTitle = best.r.title;
-    const fk4ResolvedType = best.r.type as string;
+    const streams = await fourkdhub.extractStreams(best.url, undefined, undefined, imdbId);
+    const fk4ResolvedTitle = best.title;
+    const fk4ResolvedType = best.type as string;
     return streams.map((s) => ({ ...hdhub4uStreamToStremio(s, "🔵 4KHDHub"), _resolvedTitle: fk4ResolvedTitle, _resolvedType: fk4ResolvedType }));
   } catch (err) {
     logger.error({ err, title }, "4KHDHub: crashed");
@@ -738,6 +740,7 @@ async function getFourkdHubSeriesStreams(
   season: number,
   episode: number,
   imdbId?: string,
+  meta?: ResolvedMeta | null,
 ): Promise<Record<string, unknown>[]> {
   try {
     // Try season-specific query first; fall back to plain title if it returns nothing
@@ -747,26 +750,33 @@ async function getFourkdHubSeriesStreams(
     // Only use series-typed results — never serve a movie page for a series request
     const typed = results.filter((r) => r.type === "series");
     if (!typed.length) return [];
-    // Pick the best-scoring match (similarity-ranked, word-overlap gated).
-    const scored = typed
-      .filter((r) => titleWordOverlap(title, r.title))
-      .map((r) => ({ r, score: titleSimilarityScore(title, r.title) }))
-      .sort((a, b) => b.score - a.score);
-    const best = scored[0];
-    if (!best || best.score < 0.5) return [];
+    // Pick the best-scoring match via the shared weighted matcher.
+    const candidates: MatchCandidate<typeof typed[number]>[] = typed.map((r) => ({
+      title: r.title,
+      type: "series" as const,
+      season,
+      raw: r,
+    }));
+    const match = findBestMatch(
+      { title, originalTitle: meta?.originalTitle, aliases: meta?.aliases, year: meta?.year, type: "series", season, episode },
+      candidates,
+      { provider: "4KHDHub-series", query: title, threshold: 0.45 },
+    );
+    if (!match.best) return [];
+    const best = match.best.raw;
     // Season guard: same as HDHub4U — reject pages whose URL slug embeds a
     // different season number than the one requested.
-    const fkUrlSeasonMatch = /season[_-]?(\d+)/i.exec(best.r.url);
+    const fkUrlSeasonMatch = /season[_-]?(\d+)/i.exec(best.url);
     if (fkUrlSeasonMatch) {
       const fkUrlSeason = parseInt(fkUrlSeasonMatch[1]!, 10);
       if (fkUrlSeason !== season) {
-        logger.info({ title, season, episode, urlSeason: fkUrlSeason, url: best.r.url }, "4KHDHub series: season mismatch in URL — skipping");
+        logger.info({ title, season, episode, urlSeason: fkUrlSeason, url: best.url }, "4KHDHub series: season mismatch in URL — skipping");
         return [];
       }
     }
     // Pass imdbId so extractStreams can verify the page's embedded IMDB ID matches
-    const streams = await fourkdhub.extractStreams(best.r.url, season, episode, imdbId);
-    const fk4sResolvedTitle = best.r.title;
+    const streams = await fourkdhub.extractStreams(best.url, season, episode, imdbId);
+    const fk4sResolvedTitle = best.title;
     return streams.map((s) => ({ ...hdhub4uStreamToStremio(s, "🔵 4KHDHub"), _resolvedTitle: fk4sResolvedTitle, _resolvedType: "series" }));
   } catch (err) {
     logger.error({ err, title, season, episode }, "4KHDHub: series crashed");
@@ -1180,6 +1190,7 @@ async function getAnimeDekhoStreams(
   type: string,
   season: number,
   episode: number,
+  resolvedMeta?: ResolvedMeta | null,
 ): Promise<ADStream[]> {
   logger.info({ title, type, season, episode }, "AnimeDekho: title-based stream lookup");
   try {
@@ -1198,21 +1209,28 @@ async function getAnimeDekhoStreams(
     }
     if (!bestPool.length) return [];
 
-    const scored = bestPool
-      .map((r) => ({ r, score: titleSimilarityScore(title, r.title) }))
-      .sort((a, b) => b.score - a.score);
-
-    const best = scored[0];
     // Threshold 0.45: spinoffs score below this due to length penalty.
-    // Collapsed-form matching (e.g. "Shin Chan" ↔ "Shinchan") returns 0.96,
+    // Collapsed-form matching (e.g. "Shin Chan" ↔ "Shinchan") scores ~0.9+,
     // so same-title one-word/two-word variants still pass.
-    if (!best || best.score < 0.45) {
-      logger.warn({ title, score: best?.score }, "AnimeDekho: no close title match");
+    const candidates: MatchCandidate<typeof bestPool[number]>[] = bestPool.map((r) => ({
+      title: r.title,
+      type: targetType as "movie" | "series",
+      season: targetType === "series" ? season : undefined,
+      episode: targetType === "series" ? episode : undefined,
+      raw: r,
+    }));
+    const matchResult = findBestMatch(
+      { title, originalTitle: resolvedMeta?.originalTitle, aliases: resolvedMeta?.aliases, year: resolvedMeta?.year, type: targetType as "movie" | "series", season, episode },
+      candidates,
+      { provider: "AnimeDekho", query: title, threshold: 0.45 },
+    );
+    if (!matchResult.best) {
+      logger.warn({ title, score: matchResult.score }, "AnimeDekho: no close title match");
       return [];
     }
 
-    const match = best.r;
-    logger.info({ title, matched: match.title, score: best.score }, "AnimeDekho: matched");
+    const match = matchResult.best.raw;
+    logger.info({ title, matched: match.title, score: matchResult.score }, "AnimeDekho: matched");
 
     if (targetType === "series") {
       const meta = await animeDekhoGetMeta(match.id);
@@ -1538,25 +1556,20 @@ function scoreResults(
   targetType: number,
   year: number | undefined,
 ): Array<MBSubject & { score: number }> {
-  return results.map((r) => {
-    let score = 0;
-    const rTitle = r.title.toLowerCase().trim();
-    const qTitle = title.toLowerCase().trim();
-    const qQuery = query.toLowerCase().trim();
-    if (rTitle === qTitle) score += 60;
-    else if (rTitle === qQuery) score += 50;
-    // Collapsed-form: "Shinchan" ↔ "Shin Chan" / "Shin-chan" — remove spaces/hyphens and compare
-    else if (rTitle.replace(/[\s-]/g, "") === qTitle.replace(/[\s-]/g, "")) score += 55;
-    else if (rTitle.replace(/[\s-]/g, "") === qQuery.replace(/[\s-]/g, "")) score += 45;
-    else if (rTitle.includes(qTitle) || qTitle.includes(rTitle)) score += 25;
-    else if (rTitle.includes(qQuery) || qQuery.includes(rTitle)) score += 15;
-    // Type match is critical — correct type gets a bonus, wrong type gets a penalty.
-    // Without this, an exact-title movie would outscore a partial-title series (60 vs 40).
-    if (r.subjectType === targetType) score += 15;
-    else score -= 25;
-    if (year && r.imdbRating) score += 2;
-    return { ...r, score };
-  }).sort((a, b) => b.score - a.score);
+  if (results.length === 0) return [];
+  const candidates = results.map((r) => ({
+    title: r.title,
+    type: (r.subjectType === 2 ? "series" : "movie") as "movie" | "series",
+    raw: r,
+  }));
+  const { ranked } = findBestMatch(
+    { title, type: targetType === 2 ? "series" : "movie", year },
+    candidates,
+    { provider: "MovieBox", query, quiet: true },
+  );
+  // Rescale 0-1 scores to 0-100 so all downstream thresholds (>= 10, >= 35, >= 50)
+  // and gap comparisons remain correct without any other code changes.
+  return ranked.map((r) => ({ ...r.candidate.raw, score: r.score * 100 }));
 }
 
 // Returns an ordered list of candidate subjects (best score first, deduplicated).
@@ -2352,7 +2365,7 @@ router.get("/stream/:type/:id.json", async (req, res) => {
         ep.has("kartoons") ? getKartoonsStreams(meta.title, type as "movie" | "series", season, episode, apiBase(req)) : Promise.resolve([]),
         ep.has("animesalt") ? getAnimeSaltStreams(imdbId, type, season, episode, req) : Promise.resolve([]),
         ep.has("rareanime") ? getRareAnimeStreamsByTitle(meta.title, type, season, episode, req, meta.aliases) : Promise.resolve([]),
-        ep.has("animedekho") ? getAnimeDekhoStreams(meta.title, type, season, episode) : Promise.resolve([]),
+        ep.has("animedekho") ? getAnimeDekhoStreams(meta.title, type, season, episode, meta) : Promise.resolve([]),
         ep.has("piratexplay") ? getPiratexplayStreams(meta.title, type, season, episode, req) : Promise.resolve([]),
         ep.has("netmirror") ? fetchNetmirrorStreams(type as "movie" | "series", imdbId, season, episode, req) : Promise.resolve([]),
         ep.has("streamflix") ? getStreamflixStreams(sfTmdbId, type, season, episode) : Promise.resolve([]),
@@ -2366,8 +2379,8 @@ router.get("/stream/:type/:id.json", async (req, res) => {
         ep.has("hdghartv") ? getHdghartvStreams(meta.title, type, season, episode, imdbId) : Promise.resolve([]),
         ep.has("vaplayer") ? getVaPlayerStreams(imdbId, type, season, episode) : Promise.resolve([]),
         ep.has("hindmovies") ? hindmoviezGetStreams(type as "movie" | "series", imdbId, season, episode, meta.title, meta.year ? String(meta.year) : undefined) : Promise.resolve([]),
-        ep.has("fourkdhub") ? (isSeries ? getFourkdHubSeriesStreams(meta.title, season!, episode!, imdbId) : getFourkdHubStreams(meta.title, type, imdbId)) : Promise.resolve([]),
-        ep.has("hdhub4u") ? (isSeries ? getHDHub4USeriesStreams(meta.title, season!, episode!, imdbId) : getHDHub4UStreams(meta.title, type, imdbId)) : Promise.resolve([]),
+        ep.has("fourkdhub") ? (isSeries ? getFourkdHubSeriesStreams(meta.title, season!, episode!, imdbId, meta) : getFourkdHubStreams(meta.title, type, imdbId, meta)) : Promise.resolve([]),
+        ep.has("hdhub4u") ? (isSeries ? getHDHub4USeriesStreams(meta.title, season!, episode!, imdbId, meta) : getHDHub4UStreams(meta.title, type, imdbId, meta)) : Promise.resolve([]),
       ]);
 
       const ktStreams = ktResult.status === "fulfilled" ? ktResult.value : [];
@@ -2493,7 +2506,7 @@ router.get("/stream/:type/:id.json", async (req, res) => {
         ep2.has("kartoons") ? getKartoonsStreams(meta.title, type as "movie" | "series", season, episode, apiBase(req)) : Promise.resolve([]),
         (ep2.has("animesalt") && hasImdb) ? getAnimeSaltStreams(meta.imdbId, type, season, episode, req) : Promise.resolve([]),
         ep2.has("rareanime") ? getRareAnimeStreamsByTitle(meta.title, type, season, episode, req, meta.aliases) : Promise.resolve([]),
-        ep2.has("animedekho") ? getAnimeDekhoStreams(meta.title, type, season, episode) : Promise.resolve([]),
+        ep2.has("animedekho") ? getAnimeDekhoStreams(meta.title, type, season, episode, meta) : Promise.resolve([]),
         ep2.has("piratexplay") ? getPiratexplayStreams(meta.title, type, season, episode, req) : Promise.resolve([]),
         ep2.has("netmirror") ? fetchNetmirrorStreams(type as "movie" | "series", nmId, season, episode, req) : Promise.resolve([]),
         ep2.has("streamflix") ? getStreamflixStreams(numericTmdbId, type, season, episode) : Promise.resolve([]),
@@ -2507,8 +2520,8 @@ router.get("/stream/:type/:id.json", async (req, res) => {
         ep2.has("hdghartv") ? getHdghartvStreams(meta.title, type, season, episode, hasImdb ? meta.imdbId : undefined) : Promise.resolve([]),
         (ep2.has("vaplayer") && hasImdb) ? getVaPlayerStreams(meta.imdbId, type, season, episode) : Promise.resolve([]),
         (ep2.has("hindmovies") && hasImdb) ? hindmoviezGetStreams(type as "movie" | "series", meta.imdbId, season, episode, meta.title, meta.year ? String(meta.year) : undefined) : Promise.resolve([]),
-        ep2.has("fourkdhub") ? (isSeries2 ? getFourkdHubSeriesStreams(meta.title, season!, episode!, hasImdb ? meta.imdbId : undefined) : getFourkdHubStreams(meta.title, type, hasImdb ? meta.imdbId : undefined)) : Promise.resolve([]),
-        ep2.has("hdhub4u") ? (isSeries2 ? getHDHub4USeriesStreams(meta.title, season!, episode!, hasImdb ? meta.imdbId : undefined) : getHDHub4UStreams(meta.title, type, hasImdb ? meta.imdbId : undefined)) : Promise.resolve([]),
+        ep2.has("fourkdhub") ? (isSeries2 ? getFourkdHubSeriesStreams(meta.title, season!, episode!, hasImdb ? meta.imdbId : undefined, meta) : getFourkdHubStreams(meta.title, type, hasImdb ? meta.imdbId : undefined, meta)) : Promise.resolve([]),
+        ep2.has("hdhub4u") ? (isSeries2 ? getHDHub4USeriesStreams(meta.title, season!, episode!, hasImdb ? meta.imdbId : undefined, meta) : getHDHub4UStreams(meta.title, type, hasImdb ? meta.imdbId : undefined, meta)) : Promise.resolve([]),
       ]);
 
       const ktStreams2 = ktResult2.status === "fulfilled" ? ktResult2.value : [];
@@ -2884,14 +2897,29 @@ router.get("/debug/hdhub4u", async (req, res) => {
     const results = await hdhub4u.searchSite(query);
     const typed = results.filter((r) => r.type === type);
     const pool  = typed.length > 0 ? typed : results;
-    const scored = pool.map((r) => ({
+    const candidates: MatchCandidate<typeof pool[number]>[] = pool.map((r) => ({
       title: r.title,
-      type: r.type,
-      url: r.url,
-      wordOverlap: titleWordOverlap(title, r.title),
-      score: parseFloat(titleSimilarityScore(title, r.title).toFixed(3)),
-    })).sort((a, b) => b.score - a.score);
-    res.json({ query, type, total: results.length, typed: typed.length, usedFallback: typed.length === 0, scored });
+      type: r.type as "movie" | "series",
+      season: type === "series" ? season : undefined,
+      raw: r,
+    }));
+    const match = findBestMatch(
+      { title, type, season },
+      candidates,
+      { provider: "HDHub4U-debug", query, quiet: true },
+    );
+    const scored = match.ranked.map((r) => ({
+      title: r.candidate.title,
+      type: r.candidate.type,
+      url: r.candidate.raw.url,
+      score: r.score,
+      breakdown: r.breakdown,
+      matchedOn: r.matchedOn,
+    }));
+    res.json({
+      query, type, total: results.length, typed: typed.length, usedFallback: typed.length === 0,
+      selected: match.best ? match.best.title : null, reason: match.reason, scored,
+    });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }

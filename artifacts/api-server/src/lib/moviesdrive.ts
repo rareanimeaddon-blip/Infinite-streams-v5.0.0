@@ -32,6 +32,8 @@
  *  intermediate redirects.
  */
 
+import { findBestMatch, type MatchCandidate } from "../utils/match.js";
+
 const MAIN_URL = "https://new4.moviesdrives.my";
 const ARCHIVE_DOMAIN = "https://mdrive.lol";
 
@@ -525,21 +527,33 @@ export async function getStreams(params: GetStreamsParams): Promise<StreamLink[]
     }
   }
 
-  // Pass 2: search by title, require strict match + (for series) season presence
+  // Pass 2: search by title, use findBestMatch to select candidate + (for series) season presence
   if (!matched) {
     const hits = await searchSite(title);
-    for (const hit of hits) {
-      if (!isStrictMatch(title, year, hit.title, hit.year)) continue;
-      if (isSeries && season != null) {
-        const html = await fetchText(resolveHref(hit.href), { headers: { Referer: `${MAIN_URL}/` }, timeout: 12000 });
-        if (html && extractSeasonHtml(html, season) !== null) {
+    if (hits.length > 0) {
+      const matchCandidates: MatchCandidate<SiteResult>[] = hits.map((hit) => ({
+        title: hit.title,
+        year: hit.year ?? undefined,
+        type,
+        raw: hit,
+      }));
+      const yearNum = year ? parseInt(String(year)) : undefined;
+      const { best: bestHit } = findBestMatch(
+        { title, year: yearNum, type, season, episode },
+        matchCandidates,
+        { provider: "MoviesDrive", query: title },
+      );
+      if (bestHit) {
+        const hit = bestHit.raw;
+        if (isSeries && season != null) {
+          const html = await fetchText(resolveHref(hit.href), { headers: { Referer: `${MAIN_URL}/` }, timeout: 12000 });
+          if (html && extractSeasonHtml(html, season) !== null) {
+            matched = hit;
+            matchedHtml = html;
+          }
+        } else {
           matched = hit;
-          matchedHtml = html;
-          break;
         }
-      } else {
-        matched = hit;
-        break;
       }
     }
   }

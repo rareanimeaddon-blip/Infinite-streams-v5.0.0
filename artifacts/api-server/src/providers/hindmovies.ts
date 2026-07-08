@@ -2,7 +2,7 @@ import axios from "axios";
 import * as cheerio from "cheerio";
 import crypto from "node:crypto";
 import { logger } from "../lib/logger.js";
-import { titleSimilarityScore } from "../utils/title-score.js";
+import { findBestMatch, type MatchCandidate } from "../utils/match.js";
 
 // ─── HTTP client ──────────────────────────────────────────────────────────────
 
@@ -122,18 +122,6 @@ function normaliseTitle(s: string): string {
     .trim();
 }
 
-// Require at least one shared word (≥3 chars) between two titles.
-// More reliable than a character prefix for avoiding false positives like
-// "Friends" → "Friendship" or "Friends" → "Never Kiss Your Best Friend".
-function wordOverlap(a: string, b: string): boolean {
-  const words = (s: string) =>
-    new Set(normaliseTitle(s).split(" ").filter((w) => w.length >= 3));
-  const wa = words(a);
-  if (!wa.size) return false;
-  const wb = words(b);
-  for (const w of wa) if (wb.has(w)) return true;
-  return false;
-}
 
 function extractImdbId(html: string): string | null {
   const m = html.match(/imdb\.com\/title\/(tt\d{7,8})/i);
@@ -194,8 +182,6 @@ export async function getSeriesByPage(page = 1): Promise<SiteMovie[]> {
 }
 
 async function findMovieByTitle(title: string, year?: string, imdbId?: string): Promise<SiteMovie | null> {
-  const normTarget = normaliseTitle(title);
-
   function tryMatch(results: SiteMovie[]): SiteMovie | null {
     if (!results.length) return null;
     // Tier 0: exact IMDB ID match — unambiguous, no false positives possible
@@ -203,42 +189,18 @@ async function findMovieByTitle(title: string, year?: string, imdbId?: string): 
       const idMatch = results.find((m) => m.imdbId && m.imdbId === imdbId);
       if (idMatch) return idMatch;
     }
-    // Year-coherent pool: when the requested year is known, exclude any site result
-    // that carries a year MORE than 2 years away. Results with no year on the site
-    // are always kept (can't verify). This prevents "Friends" (1994) from matching
-    // a Hindi show of the same name from a different era.
-    const yearCoherent = year
-      ? results.filter((m) => !m.year || Math.abs(parseInt(m.year, 10) - parseInt(year, 10)) <= 2)
-      : results;
-
-    if (year) {
-      // Tier 1: exact normalised title + year
-      const hit = yearCoherent.find(
-        (m) => normaliseTitle(m.title) === normTarget && m.year === year,
-      );
-      if (hit) return hit;
-      // Tier 2: best-scored word-overlap candidate + year match.
-      // Using find() would return the FIRST overlap result (search rank order),
-      // which can be wrong when the site returns loosely-related titles first.
-      // Instead, score all candidates and pick the highest-scoring one.
-      const tier2 = yearCoherent
-        .filter((m) => wordOverlap(title, m.title) && m.year === year)
-        .map((m) => ({ m, score: titleSimilarityScore(title, m.title) }))
-        .sort((a, b) => b.score - a.score);
-      if (tier2.length && tier2[0]!.score >= 0.4) return tier2[0]!.m;
-    }
-    // Tier 3: exact normalised title — use year-coherent pool so a same-name
-    // Hindi/regional show from a different year doesn't shadow the real result.
-    const exact = yearCoherent.find((m) => normaliseTitle(m.title) === normTarget);
-    if (exact) return exact;
-    // Tier 4: best-scored word-overlap candidate — weakest fallback.
-    // Must score at least 0.5 to prevent mismatches like "Office" → "Office India".
-    const tier4 = yearCoherent
-      .filter((m) => wordOverlap(title, m.title))
-      .map((m) => ({ m, score: titleSimilarityScore(title, m.title) }))
-      .sort((a, b) => b.score - a.score);
-    if (tier4.length && tier4[0]!.score >= 0.5) return tier4[0]!.m;
-    return null;
+    // Build candidates and delegate all title/year scoring to findBestMatch
+    const candidates: MatchCandidate<SiteMovie>[] = results.map((m) => ({
+      title: m.title,
+      year: m.year ? parseInt(m.year, 10) : undefined,
+      raw: m,
+    }));
+    const { best } = findBestMatch<SiteMovie>(
+      { title, year: year ? parseInt(year, 10) : undefined },
+      candidates,
+      { provider: "HindMovies", query: title },
+    );
+    return best ? best.raw : null;
   }
 
   try {
