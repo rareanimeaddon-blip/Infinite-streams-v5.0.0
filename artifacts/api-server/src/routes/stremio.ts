@@ -70,7 +70,7 @@ import {
   type Stream as MBStream,
   type Subject as MBSubject,
 } from "../lib/moviebox-api.js";
-import { encodeParam, prewarmAsRelay } from "./proxy.js";
+import { encodeParam, prewarmAsRelay, buildVidLinkStreamProxyUrl } from "./proxy.js";
 import { getStreams as getOneTouchTvStreams, type StreamSource as OTCStreamSource } from "../lib/onetouchtv.js";
 import { fetchVidLinkStream, ensureVidLinkReady, type VidLinkQuality, type VidLinkResponse } from "../lib/vidlink.js";
 import { searchSubtitles } from "../lib/opensubtitles.js";
@@ -105,30 +105,33 @@ function filenameFromUrl(cdnUrl: string, label: string): string {
 
 // VidLink's CDN (currently vodvidl.site, previously hakunaymatata.com — the exact
 // host changes without notice) requires the request that fetches the video bytes
-// to carry `Referer: https://vidlink.pro/`. A same-origin 307 redirect through our
-// own server can't make the *client's* follow-up request carry that header, and any
-// hardcoded CDN-host allowlist on our redirect proxy breaks the moment VidLink
-// rotates domains (this is exactly what caused "Host not allowed").
+// to carry `Referer: https://vidlink.pro/`. Handing the client the raw CDN URL
+// (even with `behaviorHints.proxyHeaders`) still exposes the *client's own IP* to
+// the CDN's WAF, which intermittently hard-blocks certain client networks (seen:
+// Indian mobile carrier IPs blocked on 480p/360p with a Cloudflare "Sorry, you have
+// been blocked" page, while 1080p / other titles worked) — causing endless
+// loading in the player. A same-origin 307 redirect doesn't fix this either, since
+// the client still ends up fetching the CDN directly after the redirect.
 //
-// Fix: never proxy or allowlist the CDN host. Hand Stremio the CDN URL directly and
-// let `behaviorHints.proxyHeaders` (a first-class Stremio mechanism) attach the
-// Referer/Origin when the player fetches it. This works for any future CDN host
-// with zero code changes on our side — see .agents/memory/vidlink-cdn-auth.md.
-const VIDLINK_PROXY_HEADERS = {
-  request: { Referer: "https://vidlink.pro/", Origin: "https://vidlink.pro" },
-};
-
-function buildVidLinkStreams(qualities: Record<string, VidLinkQuality>, _base: string): Array<Record<string, unknown>> {
+// Fix: stream the video bytes through our own server (`/vidlink-stream`, see
+// routes/proxy.ts) instead of exposing the CDN URL to the client at all. The CDN
+// then only ever sees our server's IP (not subject to that per-client WAF block),
+// and we attach Referer/Origin ourselves server-side — no dependency on the CDN
+// host name, so it also survives future host rotations without allowlists.
+// See .agents/memory/vidlink-cdn-auth.md.
+function buildVidLinkStreams(qualities: Record<string, VidLinkQuality>, base: string): Array<Record<string, unknown>> {
   const streams: Array<Record<string, unknown>> = [];
   const pushStream = (label: string, quality: VidLinkQuality) => {
     if (!quality?.url) return;
-    const codec = quality.codecName ? ` • ${quality.codecName.toUpperCase()}` : "";
     const filename = filenameFromUrl(quality.url, label);
+    const proxyUrl = buildVidLinkStreamProxyUrl(base, quality.url, filename);
+    if (!proxyUrl) return; // SESSION_SECRET not configured — skip rather than crash aggregation
+    const codec = quality.codecName ? ` • ${quality.codecName.toUpperCase()}` : "";
     streams.push({
       name: "🔗 VidLink",
       description: `${label}${codec}`,
-      url: quality.url,
-      behaviorHints: { notWebReady: true, filename, proxyHeaders: VIDLINK_PROXY_HEADERS },
+      url: proxyUrl,
+      behaviorHints: { notWebReady: false, filename },
     });
   };
   for (const q of VL_QUALITY_ORDER) {
