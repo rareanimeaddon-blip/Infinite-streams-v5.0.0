@@ -8,6 +8,7 @@
 
 import { logger } from "../lib/logger.js";
 import { findBestMatch, findBestMatchWithRetry, type MatchCandidate } from "../utils/match.js";
+import { tmdbTitleToImdbId } from "../lib/tmdb-verify.js";
 
 const HDGHARTV_API = "https://hdghartv.cc/api";
 
@@ -37,11 +38,16 @@ interface HdgSearchResult {
   series: Array<{ _id: string; title: string; tmdbId?: number }>;
 }
 
+interface HdgMatch {
+  id: string;
+  title: string;
+}
+
 async function searchHdghartv(
   title: string,
   kind: "movie" | "series",
   variants: string[] = [title],
-): Promise<string | null> {
+): Promise<HdgMatch | null> {
   const searchByVariant = async (
     variantTitle: string,
   ): Promise<Array<MatchCandidate<{ _id: string; title: string; tmdbId?: number }>>> => {
@@ -61,7 +67,7 @@ async function searchHdghartv(
     { provider: "HDGharTV" },
   );
   if (!best) return null;
-  return best.raw._id;
+  return { id: best.raw._id, title: best.raw.title };
 }
 
 interface HdgStreamingLink {
@@ -107,22 +113,42 @@ export async function getHdghartvMovieStreams(
   title: string,
   imdbId?: string,
   variants: string[] = [title],
+  year?: number,
 ): Promise<Record<string, unknown>[]> {
-  const internalId = await searchHdghartv(title, "movie", variants);
-  if (!internalId) {
+  const match = await searchHdghartv(title, "movie", variants);
+  if (!match) {
     logger.info({ title, imdbId }, "HDGharTV: movie not found");
     return [];
   }
 
-  const movie = await fetchJson<HdgMovie>(`${HDGHARTV_API}/movies/public/${internalId}`);
+  // Layer 2 — IMDB ID cross-check (see HDHub4U for rationale). Only rejects on a
+  // CONFIRMED mismatch; an inconclusive TMDB lookup (null) always passes through.
+  // Pass undefined for year: we only know the requested content's year, not the
+  // matched show's year. A year-constrained lookup for the wrong title and the
+  // wrong year returns null (inconclusive) and misses the mismatch. Title-only
+  // lookup lets TMDB find the correct show and flag the ID mismatch reliably.
+  let idVerified = false;
+  if (imdbId?.startsWith("tt")) {
+    const resolvedId = await tmdbTitleToImdbId(match.title, undefined, "movie").catch(() => null);
+    if (resolvedId && resolvedId !== imdbId) {
+      logger.info(
+        { title, expectedImdbId: imdbId, resolvedId, matchedTitle: match.title },
+        "HDGharTV: IMDB ID mismatch — rejecting match",
+      );
+      return [];
+    }
+    idVerified = resolvedId === imdbId;
+  }
+
+  const movie = await fetchJson<HdgMovie>(`${HDGHARTV_API}/movies/public/${match.id}`);
   if (!movie?.streamingLinks?.length) {
-    logger.info({ internalId, title }, "HDGharTV: no streaming links for movie");
+    logger.info({ internalId: match.id, title }, "HDGharTV: no streaming links for movie");
     return [];
   }
 
   const streams = linksToStreams(movie.streamingLinks);
   logger.info({ title, count: streams.length }, "HDGharTV: movie streams fetched");
-  return streams;
+  return streams.map((s) => ({ ...s, _resolvedTitle: match.title, _idVerified: idVerified }));
 }
 
 interface HdgEpisode {
@@ -148,16 +174,37 @@ export async function getHdghartvSeriesStreams(
   episode: number,
   imdbId?: string,
   variants: string[] = [title],
+  year?: number,
 ): Promise<Record<string, unknown>[]> {
-  const internalId = await searchHdghartv(title, "series", variants);
-  if (!internalId) {
+  const match = await searchHdghartv(title, "series", variants);
+  if (!match) {
     logger.info({ title, imdbId }, "HDGharTV: series not found");
     return [];
   }
 
-  const series = await fetchJson<HdgSeries>(`${HDGHARTV_API}/series/public/${internalId}`);
+  // Layer 2 — IMDB ID cross-check (see HDHub4U for rationale).
+  // We intentionally pass `undefined` for year here: the `year` we have is the
+  // REQUESTED content's year (e.g. "House (2004)"), not the matched show's year
+  // ("House of Cards" is 2013). A year-constrained TMDB lookup for the wrong title
+  // and the wrong year would return null (inconclusive), letting the wrong match
+  // pass silently. Without year, TMDB resolves the title by name and returns the
+  // right IMDB ID regardless of year — enabling a reliable mismatch detection.
+  let idVerified = false;
+  if (imdbId?.startsWith("tt")) {
+    const resolvedId = await tmdbTitleToImdbId(match.title, undefined, "series").catch(() => null);
+    if (resolvedId && resolvedId !== imdbId) {
+      logger.info(
+        { title, expectedImdbId: imdbId, resolvedId, matchedTitle: match.title },
+        "HDGharTV: IMDB ID mismatch — rejecting match",
+      );
+      return [];
+    }
+    idVerified = resolvedId === imdbId;
+  }
+
+  const series = await fetchJson<HdgSeries>(`${HDGHARTV_API}/series/public/${match.id}`);
   if (!series?.seasons?.length) {
-    logger.info({ internalId, title }, "HDGharTV: no seasons for series");
+    logger.info({ internalId: match.id, title }, "HDGharTV: no seasons for series");
     return [];
   }
 
@@ -176,5 +223,5 @@ export async function getHdghartvSeriesStreams(
   const bingeGroup = imdbId ? `${imdbId}:s${season}` : `hdghartv:${title}:s${season}`;
   const streams = linksToStreams(episodeData.streamingLinks, `S${season}E${episode}`, bingeGroup);
   logger.info({ title, season, episode, count: streams.length }, "HDGharTV: episode streams fetched");
-  return streams;
+  return streams.map((s) => ({ ...s, _resolvedTitle: match.title, _idVerified: idVerified }));
 }

@@ -1,6 +1,7 @@
 import axios from "axios";
 import { getAddonConfig } from "./kartoons-config.js";
 import { logger } from "./logger.js";
+import { findBestMatch, type MatchCandidate } from "../utils/match.js";
 
 // Simple in-process cache
 const _cache = new Map<string, { data: unknown; expiresAt: number }>();
@@ -134,16 +135,23 @@ export async function searchAddonCatalog(
 // We use the Kartoons REST API directly for title search instead.
 const KARTOONS_REST = "https://api.kartoons.me/api";
 
+interface RestSearchItem {
+  _id: string;
+  title: string;
+  releaseYear?: number;
+  startYear?: number;
+}
+
 async function restSearch(
   title: string,
   type: "movie" | "series",
-): Promise<Array<{ _id: string; title: string }>> {
+): Promise<RestSearchItem[]> {
   try {
     const endpoint = type === "movie" ? "/movies" : "/shows";
     const q = encodeURIComponent(title);
     const res = await http.get<{
       success: boolean;
-      data?: Array<{ _id: string; title: string }>;
+      data?: RestSearchItem[];
     }>(`${KARTOONS_REST}${endpoint}?search=${q}&limit=15`, { timeout: 12000 });
     return res.data?.data ?? [];
   } catch (err) {
@@ -152,23 +160,19 @@ async function restSearch(
   }
 }
 
-function scoreTitle(candidate: string, query: string): number {
-  const t = candidate.toLowerCase().trim();
-  const q = query.toLowerCase().trim();
-  if (t === q) return 100;
-  if (t.includes(q) || q.includes(t)) return 80;
-  const tw = t.split(/\s+/);
-  const qw = q.split(/\s+/);
-  const overlap = tw.filter((w) => qw.includes(w)).length;
-  return (overlap / Math.max(tw.length, qw.length)) * 60;
+export interface KartoonsSearchMatch {
+  id: string;
+  title: string;
+  year?: number;
 }
 
-export async function searchKartoonsAddon(
+export async function searchKartoonsAddonMatch(
   title: string,
   type: "movie" | "series",
-): Promise<string | null> {
-  const cacheKey = `kartoons:addon:search:id:v2:${type}:${title.toLowerCase().trim()}`;
-  const cached = getCache<string | null>(cacheKey);
+  year?: number,
+): Promise<KartoonsSearchMatch | null> {
+  const cacheKey = `kartoons:addon:search:match:v3:${type}:${title.toLowerCase().trim()}:${year ?? ""}`;
+  const cached = getCache<KartoonsSearchMatch | null>(cacheKey);
   if (cached !== undefined) return cached;
 
   const list = await restSearch(title, type);
@@ -178,14 +182,48 @@ export async function searchKartoonsAddon(
     return null;
   }
 
-  const best = list
-    .map((m) => ({ id: `kartoons:${m._id}`, score: scoreTitle(m.title, title) }))
-    .sort((a, b) => b.score - a.score)[0];
+  // Kartoons' own search endpoint frequently returns loosely "closest" results
+  // instead of an empty list when there's no real match (e.g. searching "House"
+  // can return "Mickey Mouse Clubhouse"). Route through the shared matcher —
+  // which uses word-boundary/whole-title similarity plus a year signal — rather
+  // than a naive substring `includes()` check, which previously treated any
+  // candidate title merely *containing* the query as a match (e.g. "House" is
+  // a substring of "Clubhouse").
+  const candidates: MatchCandidate<RestSearchItem>[] = list.map((item) => ({
+    title: item.title,
+    year: type === "movie" ? item.releaseYear : item.startYear,
+    type,
+    raw: item,
+  }));
 
-  const result = best && best.score >= 30 ? best.id : null;
-  logger.info({ title, type, result, topScore: best?.score }, "kartoons REST search result");
+  const { best } = findBestMatch(
+    { title, year, type },
+    candidates,
+    { provider: "Kartoons", query: title },
+  );
+
+  if (!best) {
+    setCache(cacheKey, null, 1800);
+    return null;
+  }
+
+  const result: KartoonsSearchMatch = {
+    id: `kartoons:${best.raw._id}`,
+    title: best.raw.title,
+    year: type === "movie" ? best.raw.releaseYear : best.raw.startYear,
+  };
+  logger.info({ title, type, result }, "kartoons REST search result");
   setCache(cacheKey, result, 3600);
   return result;
+}
+
+/** @deprecated Use `searchKartoonsAddonMatch` — kept for any lingering callers. */
+export async function searchKartoonsAddon(
+  title: string,
+  type: "movie" | "series",
+): Promise<string | null> {
+  const match = await searchKartoonsAddonMatch(title, type);
+  return match?.id ?? null;
 }
 
 export async function getEpisodeId(

@@ -75,6 +75,8 @@ export interface StreamResult {
     };
     [key: string]: unknown;
   };
+  /** Actual title PirateXPlay's search matched — for downstream content verification. */
+  _resolvedTitle?: string;
 }
 
 /**
@@ -1322,7 +1324,12 @@ export async function fetchStreamsByTitle(
     if (adjusted !== best.slug) targetSlug = adjusted;
   }
 
-  return fetchStreams(best.type, targetSlug, season, episode);
+  const streams = await fetchStreams(best.type, targetSlug, season, episode);
+  // Tag every stream with the title PirateXPlay's search actually matched, so
+  // downstream content verification compares against the real resolved title
+  // rather than the query echoed back against itself (trivially a perfect match).
+  const resolvedTitle = best.title;
+  return streams.map((s) => ({ ...s, _resolvedTitle: resolvedTitle }));
 }
 
 /**

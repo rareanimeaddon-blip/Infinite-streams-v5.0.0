@@ -141,6 +141,29 @@ async function fetchJson<T>(
   }
 }
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * MoviesDrive listing titles look like:
+ *   "Project Hail Mary (2026) iMAX WEB-DL [Hindi...] | Full Movie"
+ *   "House of Cards Season 1 (2013) WEB-DL 1080p ..."
+ *
+ * For downstream content-verification we need just the clean title — not the
+ * full quality-annotated string — otherwise the similarity score against the
+ * requested title ("Project Hail Mary") will be artificially low and trigger a
+ * false rejection.
+ */
+function extractBaseTitle(fullTitle: string): string {
+  // Pattern 1: strip " (YYYY) ..." suffix — most MoviesDrive titles have this
+  const withYear = fullTitle.match(/^(.+?)\s*\(\d{4}\)/);
+  if (withYear) return withYear[1]!.trim();
+  // Pattern 2: strip from quality keywords onward
+  return fullTitle.replace(
+    /\s+(1080p|720p|480p|4K|4k|BluRay|WEB-DL|WEBRip|WEB\s+DL|HDTV|DVDRip|iMAX|\[).*/i,
+    "",
+  ).trim();
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface SiteResult {
@@ -157,6 +180,10 @@ export interface StreamLink {
   host: string;
   type: "FSL" | "FSLv2" | "R2" | "GPDL" | "Workers";
   title: string;
+  /** The clean base title MoviesDrive's search matched — for downstream content verification. */
+  matchedTitle?: string;
+  /** True when the match was found via a direct IMDB-ID lookup (Pass 1) — most trustworthy. */
+  idVerified?: boolean;
 }
 
 interface ArchiveLink {
@@ -507,6 +534,8 @@ export async function getStreams(params: GetStreamsParams): Promise<StreamLink[]
 
   let matched: SiteResult | null = null;
   let matchedHtml: string | null = null;
+  // Track whether the match came from a direct IMDB-ID lookup (more trustworthy)
+  let matchedViaImdbId = false;
 
   // Pass 1: search by IMDB id if we have one — most precise
   if (imdbId && imdbId.startsWith("tt")) {
@@ -518,10 +547,12 @@ export async function getStreams(params: GetStreamsParams): Promise<StreamLink[]
         if (html && extractSeasonHtml(html, season) !== null) {
           matched = hit;
           matchedHtml = html;
+          matchedViaImdbId = true;
           break;
         }
       } else {
         matched = hit;
+        matchedViaImdbId = true;
         break;
       }
     }
@@ -585,6 +616,20 @@ export async function getStreams(params: GetStreamsParams): Promise<StreamLink[]
     for (const r of results) {
       if (r.status === "fulfilled") streams.push(...r.value);
     }
+  }
+
+  // Tag every stream with the resolved title and ID-verification flag so that
+  // downstream content verification (filterVerifiedStreams) can compare the
+  // ACTUAL matched content against the request — not the query echoed to itself.
+  //
+  // MoviesDrive listing titles include quality/codec annotations:
+  //   "Project Hail Mary (2026) iMAX WEB-DL [Hindi...] | Full Movie"
+  // We strip those before using the title for similarity-scoring so legitimate
+  // matches aren't falsely rejected due to the long suffix diluting the score.
+  const cleanedMatchTitle = extractBaseTitle(matched.title);
+  for (const s of streams) {
+    s.matchedTitle = cleanedMatchTitle;
+    if (matchedViaImdbId) s.idVerified = true;
   }
 
   // Dedupe by URL

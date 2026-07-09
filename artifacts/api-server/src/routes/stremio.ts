@@ -36,7 +36,7 @@ import { getMeowTvStreams } from "../providers/meowtv.js";
 import { getStreams as moviesDriveGetStreams, type StreamLink as MoviesDriveStreamLink } from "../lib/moviesdrive.js";
 import { getStreams as animesaltGetStreams, getStreamsByTitle as animesaltGetStreamsByTitle } from "../providers/animesalt.js";
 import { getKartoonsCatalog } from "../providers/kartoons.js";
-import { searchKartoonsAddon, getEpisodeId as getKartoonsEpisodeId, getStreamsFromAddon as getKartoonsStreamsFromAddon } from "../lib/kartoons-addon.js";
+import { searchKartoonsAddonMatch, getEpisodeId as getKartoonsEpisodeId, getStreamsFromAddon as getKartoonsStreamsFromAddon } from "../lib/kartoons-addon.js";
 import { getAnimeCatalog } from "../providers/animesalt-catalog.js";
 import {
   catalog as animeDekhoGetCatalog,
@@ -904,10 +904,11 @@ async function getHdghartvStreams(
 ): Promise<Record<string, unknown>[]> {
   try {
     const variants = meta ? buildRetryTitleVariants({ ...meta, title }) : [title];
+    const year = meta?.year ?? undefined;
     if (type === "series") {
-      return await getHdghartvSeriesStreams(title, season, episode, imdbId, variants);
+      return await getHdghartvSeriesStreams(title, season, episode, imdbId, variants, year);
     }
-    return await getHdghartvMovieStreams(title, imdbId, variants);
+    return await getHdghartvMovieStreams(title, imdbId, variants, year);
   } catch (err) {
     logger.error({ err, title }, "HDGharTV: provider error");
     return [];
@@ -940,6 +941,8 @@ function moviesDriveStreamToStremio(s: MoviesDriveStreamLink): Record<string, un
     title: `${s.quality} | ${s.size}\n${s.type}`,
     url: s.url,
     behaviorHints: { notWebReady: true },
+    _resolvedTitle: s.matchedTitle,
+    _idVerified: s.idVerified,
   };
 }
 
@@ -1410,7 +1413,7 @@ function needsPxpProxy(url: string): boolean {
 function pxpStreamToStremio(s: PxpStreamResult, req: Request): Record<string, unknown> | null {
   if (!s.url && !s.externalUrl) return null;
   if (s.externalUrl) {
-    return { name: s.name, title: s.title, externalUrl: s.externalUrl, behaviorHints: s.behaviorHints };
+    return { name: s.name, title: s.title, externalUrl: s.externalUrl, behaviorHints: s.behaviorHints, _resolvedTitle: s._resolvedTitle };
   }
   const url = s.url!;
   const referer = (s.behaviorHints?.proxyHeaders as { request?: Record<string, string> } | undefined)?.request?.["Referer"];
@@ -1423,9 +1426,9 @@ function pxpStreamToStremio(s: PxpStreamResult, req: Request): Record<string, un
     const base = apiBase(req);
     const eu = Buffer.from(url).toString("base64url");
     const proxyUrl = `${base}/hlsproxy/playlist.m3u8?u=${eu}${referer ? `&r=${Buffer.from(referer).toString("base64url")}` : ""}`;
-    return { name: s.name, title: s.title, url: proxyUrl, behaviorHints: { ...(s.behaviorHints as Record<string, unknown> ?? {}), proxyHeaders: undefined } };
+    return { name: s.name, title: s.title, url: proxyUrl, behaviorHints: { ...(s.behaviorHints as Record<string, unknown> ?? {}), proxyHeaders: undefined }, _resolvedTitle: s._resolvedTitle };
   }
-  return { name: s.name, title: s.title, url, behaviorHints: s.behaviorHints };
+  return { name: s.name, title: s.title, url, behaviorHints: s.behaviorHints, _resolvedTitle: s._resolvedTitle };
 }
 
 async function getPiratexplayStreams(
@@ -2412,7 +2415,7 @@ router.get("/stream/:type/:id.json", async (req, res) => {
       const ep = getEnabledProviders(req as RequestWithConfig);
       const isSeries = type === "series" && season !== undefined && episode !== undefined;
       const [ktResult, asResult, raResult, adResult, pxpResult, nmResult, sfResult, dfResult, ctResult, otResult, vlResult, mbResult, mwResult, mdResult, hgResult, vpResult, hmResult, fkResult, hdResult] = await Promise.allSettled([
-        ep.has("kartoons") ? getKartoonsStreams(meta.title, type as "movie" | "series", season, episode, apiBase(req)) : Promise.resolve([]),
+        ep.has("kartoons") ? getKartoonsStreams(meta.title, type as "movie" | "series", season, episode, apiBase(req), meta, imdbId) : Promise.resolve([]),
         ep.has("animesalt") ? getAnimeSaltStreams(imdbId, type, season, episode, req) : Promise.resolve([]),
         ep.has("rareanime") ? getRareAnimeStreamsByTitle(meta.title, type, season, episode, req, meta.aliases) : Promise.resolve([]),
         ep.has("animedekho") ? getAnimeDekhoStreams(meta.title, type, season, episode, meta) : Promise.resolve([]),
@@ -2488,21 +2491,21 @@ router.get("/stream/:type/:id.json", async (req, res) => {
         requestedSeason: season, requestedEpisode: episode,
         requestedImdbId: imdbId, requestedYear: meta.year, aliases: meta.aliases,
       });
-      const ktV = filterVerifiedStreams((ktStreams as Record<string, unknown>[]).map(s => ({ ...s, _resolvedTitle: meta.title })), _mkCtx("Kartoons"));
+      const ktV = filterVerifiedStreams(ktStreams as Record<string, unknown>[], _mkCtx("Kartoons"));
       const asV = filterVerifiedStreams((asStreams as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx("AnimeSalt"));
       const raV = filterVerifiedStreams((raStreams as Record<string, unknown>[]).map(s => ({ ...s, _resolvedTitle: meta.title })), _mkCtx("RareAnime"));
       const adV = filterVerifiedStreams(adStreams.map(s => ({ ...s, _resolvedTitle: meta.title, _resolvedType: contentType as string })), _mkCtx("AnimeDekho"));
-      const pxpV = filterVerifiedStreams((pxpStreams as Record<string, unknown>[]).map(s => ({ ...s, _resolvedTitle: meta.title })), _mkCtx("PirateXPlay"));
+      const pxpV = filterVerifiedStreams(pxpStreams as Record<string, unknown>[], _mkCtx("PirateXPlay"));
       const nmV = filterVerifiedStreams((nmStreams as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx("NetMirror"));
       const sfV = filterVerifiedStreams((sfStreams as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx("StreamFlix"));
       const dfV = filterVerifiedStreams((dfStreams as unknown as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx("DooFlix"));
       const ctV = filterVerifiedStreams((ctStreams as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx("CastleTV"));
-      const otV = filterVerifiedStreams((otStreams as Record<string, unknown>[]).map(s => ({ ...s, _resolvedTitle: meta.title })), _mkCtx("OneTouchTV"));
+      const otV = filterVerifiedStreams(otStreams as Record<string, unknown>[], _mkCtx("OneTouchTV"));
       const vlV = filterVerifiedStreams((vlStreams as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx("VidLink"));
       const mbV = filterVerifiedStreams((mbStreams as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx("MovieBox"));
       const mwV = filterVerifiedStreams((mwStreams as unknown as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx("MeowTV"));
-      const mdV = filterVerifiedStreams((mdStreams as Record<string, unknown>[]).map(s => ({ ...s, _resolvedTitle: meta.title })), _mkCtx("MoviesDrive"));
-      const hgV = filterVerifiedStreams((hgStreams as Record<string, unknown>[]).map(s => ({ ...s, _resolvedTitle: meta.title })), _mkCtx("HDGharTV"));
+      const mdV = filterVerifiedStreams(mdStreams as Record<string, unknown>[], _mkCtx("MoviesDrive"));
+      const hgV = filterVerifiedStreams(hgStreams as Record<string, unknown>[], _mkCtx("HDGharTV"));
       const vpV = filterVerifiedStreams((vpStreams as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx("VaPlayer"));
       const hmV = filterVerifiedStreams((hmStreams as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx("HindMoviez"));
       const fkV = filterVerifiedStreams(fkStreams as Record<string, unknown>[], _mkCtx("4KHDHub"));
@@ -2553,7 +2556,7 @@ router.get("/stream/:type/:id.json", async (req, res) => {
       const ep2 = getEnabledProviders(req as RequestWithConfig);
       const isSeries2 = type === "series" && season !== undefined && episode !== undefined;
       const [ktResult2, asResult, raResult, adResult, pxpResult, nmResult, sfResult, dfResult, ctResult, otResult, vlResult, mbResult, mwResult, mdResult, hgResult, vpResult, hmResult, fkResult, hdResult] = await Promise.allSettled([
-        ep2.has("kartoons") ? getKartoonsStreams(meta.title, type as "movie" | "series", season, episode, apiBase(req)) : Promise.resolve([]),
+        ep2.has("kartoons") ? getKartoonsStreams(meta.title, type as "movie" | "series", season, episode, apiBase(req), meta, hasImdb ? meta.imdbId : undefined) : Promise.resolve([]),
         (ep2.has("animesalt") && hasImdb) ? getAnimeSaltStreams(meta.imdbId, type, season, episode, req) : Promise.resolve([]),
         ep2.has("rareanime") ? getRareAnimeStreamsByTitle(meta.title, type, season, episode, req, meta.aliases) : Promise.resolve([]),
         ep2.has("animedekho") ? getAnimeDekhoStreams(meta.title, type, season, episode, meta) : Promise.resolve([]),
@@ -2625,21 +2628,21 @@ router.get("/stream/:type/:id.json", async (req, res) => {
         requestedSeason: season, requestedEpisode: episode,
         requestedImdbId: meta.imdbId ?? undefined, requestedYear: meta.year, aliases: meta.aliases,
       });
-      const ktV2 = filterVerifiedStreams((ktStreams2 as Record<string, unknown>[]).map(s => ({ ...s, _resolvedTitle: meta.title })), _mkCtx2("Kartoons"));
+      const ktV2 = filterVerifiedStreams(ktStreams2 as Record<string, unknown>[], _mkCtx2("Kartoons"));
       const asV2 = filterVerifiedStreams((asStreams as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx2("AnimeSalt"));
       const raV2 = filterVerifiedStreams((raStreams as Record<string, unknown>[]).map(s => ({ ...s, _resolvedTitle: meta.title })), _mkCtx2("RareAnime"));
       const adV2 = filterVerifiedStreams(adStreams.map(s => ({ ...s, _resolvedTitle: meta.title, _resolvedType: contentType as string })), _mkCtx2("AnimeDekho"));
-      const pxpV2 = filterVerifiedStreams((pxpStreams as Record<string, unknown>[]).map(s => ({ ...s, _resolvedTitle: meta.title })), _mkCtx2("PirateXPlay"));
+      const pxpV2 = filterVerifiedStreams(pxpStreams as Record<string, unknown>[], _mkCtx2("PirateXPlay"));
       const nmV2 = filterVerifiedStreams((nmStreams as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx2("NetMirror"));
       const sfV2 = filterVerifiedStreams((sfStreams as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx2("StreamFlix"));
       const dfV2 = filterVerifiedStreams((dfStreams as unknown as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx2("DooFlix"));
       const ctV2 = filterVerifiedStreams((ctStreams as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx2("CastleTV"));
-      const otV2 = filterVerifiedStreams((otStreams2 as Record<string, unknown>[]).map(s => ({ ...s, _resolvedTitle: meta.title })), _mkCtx2("OneTouchTV"));
+      const otV2 = filterVerifiedStreams(otStreams2 as Record<string, unknown>[], _mkCtx2("OneTouchTV"));
       const vlV2 = filterVerifiedStreams((vlStreams2 as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx2("VidLink"));
       const mbV2 = filterVerifiedStreams((mbStreams as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx2("MovieBox"));
       const mwV2 = filterVerifiedStreams((mwStreams as unknown as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx2("MeowTV"));
-      const mdV2 = filterVerifiedStreams((mdStreams as Record<string, unknown>[]).map(s => ({ ...s, _resolvedTitle: meta.title })), _mkCtx2("MoviesDrive"));
-      const hgV2 = filterVerifiedStreams((hgStreams as Record<string, unknown>[]).map(s => ({ ...s, _resolvedTitle: meta.title })), _mkCtx2("HDGharTV"));
+      const mdV2 = filterVerifiedStreams(mdStreams as Record<string, unknown>[], _mkCtx2("MoviesDrive"));
+      const hgV2 = filterVerifiedStreams(hgStreams as Record<string, unknown>[], _mkCtx2("HDGharTV"));
       const vpV2 = filterVerifiedStreams((vpStreams as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx2("VaPlayer"));
       const hmV2 = filterVerifiedStreams((hmStreams as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx2("HindMoviez"));
       const fkV2 = filterVerifiedStreams(fkStreams as Record<string, unknown>[], _mkCtx2("4KHDHub"));
@@ -2680,13 +2683,16 @@ async function getKartoonsStreams(
   season: number,
   episode: number,
   proxyBase: string,
+  meta?: ResolvedMeta | null,
+  imdbId?: string,
 ): Promise<Record<string, unknown>[]> {
   try {
-    const kartoonsId = await searchKartoonsAddon(title, type);
-    if (!kartoonsId) {
+    const match = await searchKartoonsAddonMatch(title, type, meta?.year);
+    if (!match) {
       logger.info({ title, type }, "Kartoons: not found");
       return [];
     }
+    const kartoonsId = match.id;
 
     let streamId = kartoonsId;
 
@@ -2699,6 +2705,22 @@ async function getKartoonsStreams(
       streamId = episodeId;
     }
 
+    // Layer 2 — IMDB ID cross-check (see getHDHub4UStreams for rationale). Kartoons
+    // is a cartoon/anime-only catalog, so its own search frequently returns the
+    // "closest" unrelated title instead of nothing — this catches those cases.
+    let ktIdVerified = false;
+    if (imdbId?.startsWith("tt")) {
+      const resolvedId = await tmdbTitleToImdbId(match.title, match.year, type).catch(() => null);
+      if (resolvedId && resolvedId !== imdbId) {
+        logger.info(
+          { title, expectedImdbId: imdbId, resolvedId, matchedTitle: match.title },
+          "Kartoons: IMDB ID mismatch — rejecting match",
+        );
+        return [];
+      }
+      ktIdVerified = resolvedId === imdbId;
+    }
+
     const streams = await getKartoonsStreamsFromAddon(streamId, type);
     // Kartoons proxy URLs are IP-bound to our server's IP — route through
     // /hmproxy so the request originates from the same IP that generated the URL.
@@ -2708,6 +2730,8 @@ async function getKartoonsStreams(
       url: `${proxyBase}/hmproxy?u=${encodeParam(s.url)}`,
       subtitles: s.subtitles,
       behaviorHints: { ...(s.behaviorHints ?? {}) },
+      _resolvedTitle: match.title,
+      _idVerified: ktIdVerified,
     }));
   } catch (err) {
     logger.error({ err, title }, "Kartoons: getKartoonsStreams error");

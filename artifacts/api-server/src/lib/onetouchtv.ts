@@ -140,6 +140,8 @@ export interface StreamSource {
   quality: string;
   subtitles?: Array<{ url: string; lang: string }>;
   headers?: Record<string, string>;
+  /** Actual title OneTouchTV resolved to — used by downstream content verification. */
+  _resolvedTitle?: string;
 }
 
 // ------- Type compatibility -------
@@ -439,6 +441,10 @@ export async function getStreams(
         "User-Agent": "Mozilla/5.0",
         Referer: "https://api3.devcorp.me/",
       },
+      // Propagate the actual matched title so filterVerifiedStreams compares
+      // the provider's resolved title against the requested title — not the query
+      // echoed back against itself (which is always trivially a perfect match).
+      _resolvedTitle: matchResult.title,
     });
   }
 
