@@ -2902,10 +2902,11 @@ import { lookup as dnsLookup } from "node:dns/promises";
 // rather than silently using a guessable well-known key.
 const VIDLINK_SIGN_SECRET = process.env["SESSION_SECRET"];
 if (!VIDLINK_SIGN_SECRET) {
-  logger.error(
+  logger.warn(
     "VidLink: SESSION_SECRET env var is not set. " +
-    "All VidLink streams will be silently omitted from responses because proxy URLs cannot be HMAC-signed. " +
-    "Fix: set SESSION_SECRET to any strong random string (e.g. `openssl rand -hex 32`) in your environment."
+    "Streams will be served by handing CDN URLs directly to the player (pre-proxy fallback) instead of " +
+    "routing through the server proxy. This works fine for most deployments. " +
+    "Set SESSION_SECRET to a strong random string if you need the server-side proxy (e.g. to shield client IPs from the CDN WAF)."
   );
 }
 

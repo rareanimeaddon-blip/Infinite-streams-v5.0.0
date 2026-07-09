@@ -126,14 +126,31 @@ function buildVidLinkStreams(qualities: Record<string, VidLinkQuality>, base: st
     if (!quality?.url) return;
     const filename = filenameFromUrl(quality.url, label);
     const proxyUrl = buildVidLinkStreamProxyUrl(base, quality.url, filename);
-    if (!proxyUrl) return; // SESSION_SECRET not configured — skip rather than crash aggregation
+    // If SESSION_SECRET is not configured, proxyUrl is null — fall back to handing
+    // the CDN URL directly to the player with proxyHeaders (the pre-proxy approach).
+    // This means VidLink always works regardless of whether SESSION_SECRET is set.
+    // The server-side proxy is preferred when available (shields client IP from WAF)
+    // but the direct approach works fine for most deployments, especially home servers.
     const codec = quality.codecName ? ` • ${quality.codecName.toUpperCase()}` : "";
-    streams.push({
-      name: "🔗 VidLink",
-      description: `${label}${codec}`,
-      url: proxyUrl,
-      behaviorHints: { notWebReady: false, filename },
-    });
+    if (proxyUrl) {
+      streams.push({
+        name: "🔗 VidLink",
+        description: `${label}${codec}`,
+        url: proxyUrl,
+        behaviorHints: { notWebReady: false, filename },
+      });
+    } else {
+      streams.push({
+        name: "🔗 VidLink",
+        description: `${label}${codec}`,
+        url: quality.url,
+        behaviorHints: {
+          notWebReady: true,
+          filename,
+          proxyHeaders: { request: { Referer: "https://vidlink.pro/", Origin: "https://vidlink.pro" } },
+        },
+      });
+    }
   };
   for (const q of VL_QUALITY_ORDER) {
     const quality = qualities[q];
