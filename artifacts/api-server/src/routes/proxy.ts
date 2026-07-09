@@ -3066,6 +3066,81 @@ export function buildVidLinkStreamProxyUrl(serverBase: string, cdnUrl: string, f
 
 const VIDLINK_HEADERS = { Referer: "https://vidlink.pro/", Origin: "https://vidlink.pro" };
 
+// Express auto-routes HEAD requests through a GET handler and just discards the
+// body it writes — it does NOT skip the handler body. Without an explicit check,
+// a player's HEAD probe (common before deciding whether/how to Range-request)
+// would still run the full byte-streaming loop below and could take as long as
+// downloading the entire movie before ever responding, which looked exactly like
+// "downloading the whole file server-side" and caused endless-loading specifically
+// on large movie files (small series files finished fast enough to not notice).
+// Fix: for HEAD, issue a HEAD upstream (or GET-without-body-read) and return only
+// headers immediately, never touching the response body.
+router.head("/vidlink-stream/:encodedUrl/:filename", async (req: Request, res: Response): Promise<void> => {
+  const { encodedUrl } = req.params as { encodedUrl: string };
+  const sig = req.query["sig"] as string | undefined;
+  const expires = Number(req.query["exp"]);
+  if (!sig || !verifyVidLinkSignature(encodedUrl, expires, sig)) {
+    res.status(403).end();
+    return;
+  }
+  let targetUrl: string;
+  let parsed: URL;
+  try {
+    targetUrl = Buffer.from(encodedUrl, "base64url").toString("utf8");
+    parsed = new URL(targetUrl);
+  } catch {
+    res.status(400).end();
+    return;
+  }
+  if (parsed.protocol !== "https:" || (await isPrivateOrDisallowedHost(parsed.hostname))) {
+    res.status(403).end();
+    return;
+  }
+  try {
+    let upstream = await fetch(targetUrl, {
+      method: "HEAD",
+      headers: VIDLINK_HEADERS,
+      redirect: "manual",
+      signal: AbortSignal.timeout(15_000),
+    });
+    // VidLink's CDN doesn't support HEAD (returns 405) — fall back to a 1-byte
+    // ranged GET, which every mp4 CDN treats like a normal request but costs
+    // ~nothing to transfer, then discard the connection without reading the body.
+    if (upstream.status === 405 || upstream.status === 501) {
+      upstream = await fetch(targetUrl, {
+        method: "GET",
+        headers: { ...VIDLINK_HEADERS, Range: "bytes=0-0" },
+        redirect: "manual",
+        signal: AbortSignal.timeout(15_000),
+      });
+    }
+    if (upstream.type === "opaqueredirect" || (upstream.status >= 300 && upstream.status < 400)) {
+      res.status(502).end();
+      return;
+    }
+    if (!upstream.ok && upstream.status !== 206 && upstream.status !== 405 && upstream.status !== 501) {
+      res.status(upstream.status).end();
+      return;
+    }
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Headers", "*");
+    res.setHeader("Content-Type", upstream.headers.get("content-type") || "video/mp4");
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    res.setHeader("Accept-Ranges", upstream.headers.get("accept-ranges") || "bytes");
+    // For the 1-byte ranged-GET fallback, report the *full* size (from
+    // Content-Range's total) rather than the 1-byte Content-Length of that probe.
+    const cr = upstream.headers.get("content-range");
+    const totalFromRange = cr?.match(/\/(\d+)$/)?.[1];
+    const cl = totalFromRange ?? upstream.headers.get("content-length");
+    if (cl) res.setHeader("Content-Length", cl);
+    res.status(200).end();
+  } catch (err) {
+    logger.error({ err, host: parsed.hostname }, "VidLink stream proxy HEAD error");
+    if (!res.headersSent) res.status(502).end();
+    else res.end();
+  }
+});
+
 router.get("/vidlink-stream/:encodedUrl/:filename", async (req: Request, res: Response): Promise<void> => {
   const { encodedUrl } = req.params as { encodedUrl: string; filename: string };
   const sig = req.query["sig"] as string | undefined;
