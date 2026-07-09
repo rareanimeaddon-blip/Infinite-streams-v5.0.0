@@ -2902,7 +2902,11 @@ import { lookup as dnsLookup } from "node:dns/promises";
 // rather than silently using a guessable well-known key.
 const VIDLINK_SIGN_SECRET = process.env["SESSION_SECRET"];
 if (!VIDLINK_SIGN_SECRET) {
-  logger.error("VidLink stream proxy: SESSION_SECRET is not set — /vidlink-stream will refuse all requests");
+  logger.error(
+    "VidLink: SESSION_SECRET env var is not set. " +
+    "All VidLink streams will be silently omitted from responses because proxy URLs cannot be HMAC-signed. " +
+    "Fix: set SESSION_SECRET to any strong random string (e.g. `openssl rand -hex 32`) in your environment."
+  );
 }
 
 // Signed URLs expire well after the aggregation window (~20s) plus generous
