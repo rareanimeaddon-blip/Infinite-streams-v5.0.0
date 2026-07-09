@@ -9,8 +9,6 @@ const TMDB_KEY = "adc48d20c0956934fb224de5c40bb85d";
 
 export const MEOW_SERVERS = [
   { id: "lynx",       label: "Lynx" },
-  { id: "pseudo",     label: "Pseudo" },
-  { id: "tik",        label: "TCloud" },
   { id: "ipcloud",    label: "IPCloud" },
   { id: "v5:Hindi",   label: "Hindi" },
   { id: "v4:Hindi",   label: "Hindi v2" },

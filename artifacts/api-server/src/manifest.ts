@@ -4,28 +4,7 @@ export const manifest = {
   id: ADDON_ID,
   version: "8.8.0",
   name: "INFINITE STREAMS",
-  description:
-    "♾️ 19 providers. One addon. Zero compromise.\n" +
-    "🎌 Kartoons — 479 shows & 515 movies: Hindi/English anime & cartoons.\n" +
-    "⛩️ AnimeSalt — Hindi, English & Japanese multi-audio anime HLS.\n" +
-    "🌙 RareAnime India — Hindi & Tamil dubbed anime (rareanimes.buzz + animetoonhindi).\n" +
-    "🇮🇳 AnimeDekho — Hindi/Tamil/Telugu dubbed anime via 15+ extractors.\n" +
-    "🏴‍☠️ PirateXPlay — Free anime, movies & cartoons (sub/dub, HD) via piratexplay.cc.\n" +
-    "🌐 NetMirror — 1080p mirrors of Netflix, Prime Video & Hotstar.\n" +
-    "🎬 StreamFlix — Multi-audio & multilingual streaming library.\n" +
-    "📺 DooFlix — HLS streams via xpass.top matched by IMDB ID.\n" +
-    "🏰 Castle TV — Tamil/Hindi/English multi-language streams.\n" +
-    "📺 OneTouchTV — Asian dramas, anime & movies via AES-decrypted API (api3.devcorp.me).\n" +
-    "🔗 VidLink — 4K/1080p/720p MP4 streams via VidLink.pro with WASM-based CDN encryption.\n" +
-    "🍿 MovieBox — Multi-audio: Hindi, Bengali, English & more.\n" +
-    "🐱 MeowTV — Lynx, Pseudo, TCloud, IPCloud & Hindi servers (meowtv.ru).\n" +
-    "🚗 MoviesDrive — 720p/1080p/4K direct file streams via HubCloud CDN (moviesdrives.my).\n" +
-    "🏚️ HDGharTV — Multi-quality direct streams via hdghartv.cc.\n" +
-    "🎮 VaPlayer — HLS streams matched directly by IMDB ID.\n" +
-    "🎞️ HindMoviez — Bollywood, Hollywood & Hindi-dubbed in 480p–4K.\n" +
-    "🔵 4KHDHub — 4K/1080p Hindi & Dual-audio streams via HubCloud CDN.\n" +
-    "📡 HDHub4U — Hindi/Dual-audio movies & series via HubCloud CDN.\n" +
-    "Supports IMDB, TMDB & Cinemeta IDs. | By @Master_si",
+  description: "Http addon for endless streaming by @Master_si",
   logo: "https://i.imgur.com/YPqM5vW.png",
   background: "https://i.imgur.com/f4Rj2Qp.jpg",
   types: ["movie", "series"],
