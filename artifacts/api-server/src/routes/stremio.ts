@@ -70,7 +70,7 @@ import {
   type Stream as MBStream,
   type Subject as MBSubject,
 } from "../lib/moviebox-api.js";
-import { encodeParam, prewarmAsRelay, buildProxyUrl } from "./proxy.js";
+import { encodeParam, prewarmAsRelay } from "./proxy.js";
 import { getStreams as getOneTouchTvStreams, type StreamSource as OTCStreamSource } from "../lib/onetouchtv.js";
 import { fetchVidLinkStream, ensureVidLinkReady, type VidLinkQuality, type VidLinkResponse } from "../lib/vidlink.js";
 import { searchSubtitles } from "../lib/opensubtitles.js";
@@ -103,22 +103,41 @@ function filenameFromUrl(cdnUrl: string, label: string): string {
   } catch { return `${label.replace(/\s+/g, "_")}.mp4`; }
 }
 
-function buildVidLinkStreams(qualities: Record<string, VidLinkQuality>, base: string): Array<Record<string, unknown>> {
+// VidLink's CDN (currently vodvidl.site, previously hakunaymatata.com — the exact
+// host changes without notice) requires the request that fetches the video bytes
+// to carry `Referer: https://vidlink.pro/`. A same-origin 307 redirect through our
+// own server can't make the *client's* follow-up request carry that header, and any
+// hardcoded CDN-host allowlist on our redirect proxy breaks the moment VidLink
+// rotates domains (this is exactly what caused "Host not allowed").
+//
+// Fix: never proxy or allowlist the CDN host. Hand Stremio the CDN URL directly and
+// let `behaviorHints.proxyHeaders` (a first-class Stremio mechanism) attach the
+// Referer/Origin when the player fetches it. This works for any future CDN host
+// with zero code changes on our side — see .agents/memory/vidlink-cdn-auth.md.
+const VIDLINK_PROXY_HEADERS = {
+  request: { Referer: "https://vidlink.pro/", Origin: "https://vidlink.pro" },
+};
+
+function buildVidLinkStreams(qualities: Record<string, VidLinkQuality>, _base: string): Array<Record<string, unknown>> {
   const streams: Array<Record<string, unknown>> = [];
+  const pushStream = (label: string, quality: VidLinkQuality) => {
+    if (!quality?.url) return;
+    const codec = quality.codecName ? ` • ${quality.codecName.toUpperCase()}` : "";
+    const filename = filenameFromUrl(quality.url, label);
+    streams.push({
+      name: "🔗 VidLink",
+      description: `${label}${codec}`,
+      url: quality.url,
+      behaviorHints: { notWebReady: true, filename, proxyHeaders: VIDLINK_PROXY_HEADERS },
+    });
+  };
   for (const q of VL_QUALITY_ORDER) {
     const quality = qualities[q];
-    if (!quality?.url) continue;
-    const codec = quality.codecName ? ` • ${quality.codecName.toUpperCase()}` : "";
-    const label = VL_QUALITY_LABELS[q] ?? `${q}p`;
-    const filename = filenameFromUrl(quality.url, label);
-    streams.push({ name: "🔗 VidLink", description: `${label}${codec}`, url: buildProxyUrl(base, quality.url, filename), behaviorHints: { notWebReady: false, filename } });
+    if (quality?.url) pushStream(VL_QUALITY_LABELS[q] ?? `${q}p`, quality);
   }
   for (const [key, quality] of Object.entries(qualities)) {
     if (VL_QUALITY_ORDER.includes(key as VLQualityKey)) continue;
-    if (!quality?.url) continue;
-    const codec = quality.codecName ? ` • ${quality.codecName.toUpperCase()}` : "";
-    const filename = filenameFromUrl(quality.url, `${key}p`);
-    streams.push({ name: "🔗 VidLink", description: `${key}p${codec}`, url: buildProxyUrl(base, quality.url, filename), behaviorHints: { notWebReady: false, filename } });
+    if (quality?.url) pushStream(`${key}p`, quality);
   }
   return streams;
 }

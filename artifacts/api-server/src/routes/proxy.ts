@@ -2869,47 +2869,11 @@ router.options("/as-va", (_req, res) => {
   res.status(204).end();
 });
 
-// ─── VidLink CDN proxy ────────────────────────────────────────────────────────
-// Encodes a CDN URL into a URL-safe base64 string for use in a proxy path.
-export function encodeProxyUrl(cdnUrl: string): string {
-  return Buffer.from(cdnUrl).toString("base64url");
-}
-
-// Builds a full proxy redirect URL for a VidLink CDN asset.
-// The 307 means the client's IP hits the CDN directly — no buffering on our server.
-export function buildProxyUrl(serverBase: string, cdnUrl: string, filename: string): string {
-  return `${serverBase}/vidlink-proxy/${encodeProxyUrl(cdnUrl)}/${encodeURIComponent(filename)}`;
-}
-
-const VIDLINK_CDN_ALLOWED = ["hakunaymatata.com"];
-
-router.get("/vidlink-proxy/:encodedUrl/:filename", (req: Request, res: Response): void => {
-  const { encodedUrl } = req.params as { encodedUrl: string; filename: string };
-  let targetUrl: string;
-  try { targetUrl = Buffer.from(encodedUrl, "base64url").toString(); }
-  catch { res.status(400).json({ error: "Invalid proxy URL" }); return; }
-  let parsed: URL;
-  try { parsed = new URL(targetUrl); }
-  catch { res.status(400).json({ error: "Malformed URL" }); return; }
-  const ok = VIDLINK_CDN_ALLOWED.some((h) => parsed.hostname === h || parsed.hostname.endsWith(`.${h}`));
-  if (!ok) {
-    logger.warn({ host: parsed.hostname }, "VidLink proxy: blocked host");
-    res.status(403).json({ error: "Host not allowed" });
-    return;
-  }
-  res
-    .setHeader("Access-Control-Allow-Origin", "*")
-    .setHeader("Cache-Control", "private, max-age=30")
-    .redirect(307, targetUrl);
-});
-
-router.options("/vidlink-proxy/:encodedUrl/:filename", (_req, res) => {
-  res
-    .setHeader("Access-Control-Allow-Origin", "*")
-    .setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
-    .setHeader("Access-Control-Allow-Headers", "*")
-    .status(204)
-    .end();
-});
+// NOTE: VidLink streams no longer go through a server-side redirect proxy here.
+// They used to (`/vidlink-proxy` + a hardcoded CDN-host allowlist), but that broke
+// every time VidLink rotated its CDN host (e.g. hakunaymatata.com -> vodvidl.site),
+// returning "Host not allowed". VidLink now hands Stremio the CDN URL directly with
+// `behaviorHints.proxyHeaders` (see buildVidLinkStreams in routes/stremio.ts) so no
+// allowlist exists to go stale. See .agents/memory/vidlink-cdn-auth.md.
 
 export default router;
