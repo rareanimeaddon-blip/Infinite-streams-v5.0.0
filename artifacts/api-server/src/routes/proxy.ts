@@ -2059,6 +2059,14 @@ const relayResultCache = new Map<string, RelayCache>();
 const relayInFlight = new Map<string, Promise<string>>();
 const RELAY_TTL_MS = 90_000;
 
+// Pre-generated audio rendition playlists, keyed by `hash::playerCdn::pid`.
+// Populated during relay computation so that /as-audio-cached can serve them
+// without re-fetching the CDN variant URL (whose signed token may have expired
+// by the time the player requests the audio rendition — a common cause of
+// "starts loading video, then playback error" on Android ExoPlayer).
+interface AudioPlCache { playlist: string; expiresAt: number }
+const relayAudioCache = new Map<string, AudioPlCache>();
+
 /**
  * Post-processes a proxied HLS master playlist so that the Hindi audio
  * rendition is listed FIRST and has DEFAULT=YES, while all other audio
@@ -2411,7 +2419,6 @@ async function computeRelayM3u8(hash: string, playerCdn: string, proxyBase: stri
   // entries pointing to our per-PID audio rendition proxy endpoints.
   // Video playback is fully unchanged — the variant URL is unmodified.
   if (isVariant && detectedTracks.length > 1) {
-    const variantProxied = `${proxyBase}/m3u8?url=${encodeURIComponent(m3u8Url)}&referer=${refEnc}&origin=${orgEnc}`;
     const encVariant = encodeURIComponent(m3u8Url);
     const pmtStr = String(detectedPmtPid);
 
@@ -2435,10 +2442,50 @@ async function computeRelayM3u8(hash: string, playerCdn: string, proxyBase: stri
       `${proxyBase}/m3u8?url=${encVariant}&referer=${refEnc}&origin=${orgEnc}` +
       `&audiopid=${hindiTrack.pid}&pmtpid=${pmtStr}&noAudioProbe=1`;
 
+    // Pre-generate and cache audio rendition playlists NOW, using the CDN
+    // variant text we already fetched.  This avoids a second CDN fetch at play
+    // time — the CDN's signed URLs typically expire within 30-60 s, so by the
+    // time Android ExoPlayer requests the audio rendition playlist (a few
+    // seconds after the master, after the video variant loads), the URL may
+    // already be invalid → 403 → no audio → hard playback error and app exit.
+    // Serving from cache guarantees the playlist is always available within
+    // the relay's 90 s window regardless of CDN token lifetime.
+    let variantText = text;
+    if (!variantText.includes("#EXT-X-PLAYLIST-TYPE")) {
+      variantText = variantText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+      const nl = variantText.indexOf("\n");
+      if (nl !== -1) variantText = variantText.slice(0, nl + 1) + "#EXT-X-PLAYLIST-TYPE:VOD\n" + variantText.slice(nl + 1);
+    }
+    // Cache key mirrors relayResultCache: hash::playerCdn::proxyBase::pid.
+    // Including proxyBase ensures that if the same relay is served from two
+    // different origin domains (e.g. Pi and Replit), each gets its own cached
+    // playlist with correctly-scoped URLs.
+    for (const t of orderedTracks) {
+      const audioPl = variantText.split("\n").map(line => {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#")) return line;
+        const absUrl = trimmed.startsWith("http") ? trimmed
+          : trimmed.startsWith("/") ? parsed.origin + trimmed
+          : segBase + trimmed;
+        return (
+          `${proxyBase}/as-audio?url=${encodeURIComponent(absUrl)}` +
+          `&pid=${t.pid}&pmtpid=${pmtStr}&ref=${refEnc}&org=${orgEnc}`
+        );
+      }).join("\n");
+      relayAudioCache.set(`${hash}::${playerCdn}::${proxyBase}::${t.pid}`, {
+        playlist: audioPl,
+        expiresAt: Date.now() + RELAY_TTL_MS,
+      });
+    }
+
+    const encodedProxyBase = encodeParam(proxyBase);
     const mediaLines = orderedTracks.map((t, i) => {
+      // Point to /as-audio-cached so the player fetches the pre-generated
+      // playlist from our cache instead of triggering a fresh CDN fetch via
+      // /as-audio-pl (which risks hitting an expired CDN token).
       const audioPlUrl =
-        `${proxyBase}/as-audio-pl?variantUrl=${encVariant}` +
-        `&pid=${t.pid}&pmtpid=${pmtStr}&ref=${refEnc}&org=${orgEnc}`;
+        `${proxyBase}/as-audio-cached` +
+        `?hash=${encodeURIComponent(hash)}&cdn=${encodeParam(playerCdn)}&pid=${t.pid}&base=${encodedProxyBase}`;
       return (
         `#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",` +
         `LANGUAGE="${t.language || `und${i}`}",NAME="${t.name}",` +
@@ -2449,13 +2496,20 @@ async function computeRelayM3u8(hash: string, playerCdn: string, proxyBase: stri
 
     logger.info({ hash, tracks: detectedTracks.length, defaultTrack: hindiTrack.name, hindiPid: hindiTrack.pid }, "AnimeSalt relay: serving synthetic HLS master with Hindi-filtered main variant");
 
+    // CODECS declares only the video codec — audio comes entirely from the
+    // AUDIO= rendition group.  Omitting mp4a.40.2 here is correct because
+    // /as-va strips all audio from the variant TS segments; including it would
+    // be a false promise that ExoPlayer (Android) enforces strictly by waiting
+    // for audio packets that never arrive → stall → playback error.
+    // hls.js (web) and GStreamer (LG TV) tolerate the mismatch, but ExoPlayer
+    // does not, which is why Android was the only platform that failed.
     return [
       "#EXTM3U",
       "#EXT-X-VERSION:3",
       "",
       ...mediaLines,
       "",
-      `#EXT-X-STREAM-INF:BANDWIDTH=2000000,CODECS="avc1.42c01f,mp4a.40.2",AUDIO="audio"`,
+      `#EXT-X-STREAM-INF:BANDWIDTH=2000000,CODECS="avc1.42c01f",AUDIO="audio"`,
       variantWithHindi,
     ].join("\n");
   }
@@ -2690,6 +2744,46 @@ router.get("/as-audio", async (req: Request, res: Response) => {
 });
 
 router.options("/as-audio", (_req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Headers", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.status(204).end();
+});
+
+// ---------------------------------------------------------------------------
+// /as-audio-cached — serves pre-generated audio rendition playlists
+//
+// Audio rendition playlists for the AnimeSalt relay are pre-generated during
+// relay computation (computeRelayM3u8) and stored in relayAudioCache, keyed
+// by hash::playerCdn::pid.  This endpoint serves them so the player never
+// needs to re-fetch the CDN variant URL (whose signed token expires in ~30-60 s,
+// often before Android ExoPlayer gets around to requesting the audio rendition).
+//
+// Query params:
+//   hash  — AnimeSalt video hash
+//   cdn   — base64url-encoded playerCdn (same encoding as /as-relay's `player`)
+//   pid   — audio elementary stream PID (integer)
+// ---------------------------------------------------------------------------
+router.get("/as-audio-cached", (req: Request, res: Response) => {
+  const { hash, cdn, pid, base } = req.query as Record<string, string | undefined>;
+  if (!hash || !cdn || !pid || !base) { res.status(400).end(); return; }
+  let playerCdn: string;
+  let proxyBase: string;
+  try { playerCdn = decodeParam(cdn); proxyBase = decodeParam(base); } catch { res.status(400).end(); return; }
+  const key = `${hash}::${playerCdn}::${proxyBase}::${pid}`;
+  const cached = relayAudioCache.get(key);
+  if (!cached || cached.expiresAt <= Date.now()) {
+    logger.warn({ hash, pid }, "as-audio-cached: cache miss — relay may have expired or not been computed yet");
+    res.status(404).end();
+    return;
+  }
+  res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Cache-Control", "no-store");
+  res.send(cached.playlist);
+});
+
+router.options("/as-audio-cached", (_req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");

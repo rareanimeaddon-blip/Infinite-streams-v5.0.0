@@ -2331,6 +2331,92 @@ router.get("/subtitles/:type/:id.json", subtitlesHandler);
 // `:extra` captures and discards the stream-context info; `:id` is still the IMDB ID.
 router.get("/subtitles/:type/:id/:extra.json", subtitlesHandler);
 
+// ─── VidLink diagnostic endpoint ─────────────────────────────────────────────
+// Hit /api/test/vidlink (or /<mask>/test/vidlink) from a browser on the server
+// to instantly see which layer is broken: WASM init, TMDB lookup, or VidLink API.
+
+router.get("/test/vidlink", async (req: Request, res: Response) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Content-Type", "application/json");
+
+  const report: Record<string, unknown> = {
+    timestamp: new Date().toISOString(),
+    sessionSecretSet: !!process.env["SESSION_SECRET"],
+  };
+
+  // ── Step 1: WASM ────────────────────────────────────────────────────────────
+  try {
+    await ensureVidLinkReady();
+    report.wasm = "OK";
+  } catch (err) {
+    report.wasm = `FAILED: ${(err as Error).message}`;
+    report.diagnosis = "WASM init failed. The server cannot produce VidLink streams at all. " +
+      "Check that wasm/fu.wasm and wasm/script.js exist and that libsodium-wrappers is installed.";
+    res.status(200).json(report);
+    return;
+  }
+
+  // ── Step 2: TMDB lookup ─────────────────────────────────────────────────────
+  const testImdbId = "tt1375666"; // Inception
+  const tmdbId = await imdbToTmdbId(testImdbId, "movie");
+  if (!tmdbId) {
+    report.tmdb = "FAILED (returned null)";
+    report.diagnosis = "TMDB ID lookup failed. VidLink is silently skipped for every request. " +
+      "Verify the server can reach https://api.themoviedb.org.";
+    res.status(200).json(report);
+    return;
+  }
+  report.tmdb = `OK (Inception → tmdbId=${tmdbId})`;
+
+  // ── Step 3: VidLink API ─────────────────────────────────────────────────────
+  let vlResponse: VidLinkResponse | null = null;
+  try {
+    vlResponse = await fetchVidLinkStream({ type: "movie", tmdbId });
+  } catch (err) {
+    report.vidlinkApi = `FAILED (threw): ${(err as Error).message}`;
+    report.diagnosis = "VidLink API threw an error. Check server logs for details.";
+    res.status(200).json(report);
+    return;
+  }
+
+  if (!vlResponse) {
+    report.vidlinkApi = "FAILED (returned null — non-200 from vidlink.pro)";
+    report.diagnosis = "VidLink API returned null. Likely causes: (1) the server IP is blocked by vidlink.pro, " +
+      "(2) the WASM-encoded ID is stale/wrong, or (3) a transient API outage.";
+    res.status(200).json(report);
+    return;
+  }
+
+  const qualities = vlResponse.stream?.qualities ?? {};
+  const qualityKeys = Object.keys(qualities);
+  if (!qualityKeys.length) {
+    report.vidlinkApi = "FAILED (API responded but qualities object is empty)";
+    report.diagnosis = "VidLink API responded but returned no playable streams. This is unusual — try again.";
+    res.status(200).json(report);
+    return;
+  }
+
+  report.vidlinkApi = `OK — sourceId=${vlResponse.sourceId}, qualities=[${qualityKeys.join(", ")}]`;
+
+  // ── Step 4: Stream URL generation ───────────────────────────────────────────
+  const firstQuality = Object.values(qualities)[0];
+  const cdnUrl = firstQuality?.url ?? "";
+  const proxyUrl = buildVidLinkStreamProxyUrl(apiBase(req), cdnUrl, "test.mp4");
+  if (proxyUrl) {
+    report.streamUrl = "SIGNED_PROXY (SESSION_SECRET is set — server-side proxy active, client IP hidden from CDN WAF)";
+    report.urlSample = proxyUrl.slice(0, 80) + "...";
+  } else {
+    report.streamUrl = "DIRECT_FALLBACK (SESSION_SECRET not set — player will fetch CDN directly with proxyHeaders)";
+    report.urlSample = cdnUrl.slice(0, 80) + "...";
+    report.note = "This should still work for home networks. If playback fails, set SESSION_SECRET to enable the server-side proxy.";
+  }
+
+  report.diagnosis = "Everything looks healthy. If streams still don't appear in Stremio, " +
+    "restart the Pi server (git pull → pnpm install → pnpm build → restart) to apply any code changes.";
+
+  res.status(200).json(report);
+});
+
 // ─── Stream endpoint ──────────────────────────────────────────────────────────
 
 router.get("/stream/:type/:id.json", async (req, res) => {
@@ -2450,9 +2536,35 @@ router.get("/stream/:type/:id.json", async (req, res) => {
       logger.info({ imdbId, title: meta.title, year: meta.year }, "Stremio: IMDB — querying 19 providers");
       logResolve({ imdbId, step: "resolve", status: "ok", detail: `${meta.title} (${meta.year})` });
 
-      const sfTmdbId = await imdbToTmdbId(imdbId, type).catch(() => null);
+      // Resolve TMDB ID shared by StreamFlix and VidLink.
+      // Track whether the call threw (transient network/DNS failure) vs returned
+      // null normally (title genuinely not in TMDB) — only retry for VidLink in
+      // the transient case; a normal null means TMDB simply doesn't know the
+      // title, so a retry would waste an API call and still return null.
+      let sfTmdbId: string | null = null;
+      let sfTmdbThrew = false;
+      try {
+        sfTmdbId = await imdbToTmdbId(imdbId, type);
+      } catch {
+        sfTmdbThrew = true;
+      }
+      // For VidLink: if the shared lookup threw (transient), retry once so a
+      // momentary hiccup doesn't silently kill VidLink for the whole request.
+      const vlTmdbId = sfTmdbThrew
+        ? await imdbToTmdbId(imdbId, type).catch(() => null)
+        : sfTmdbId;
 
       const ep = getEnabledProviders(req as RequestWithConfig);
+
+      // #1 silent failure: VidLink produces zero streams with no error log when
+      // vlTmdbId is null.  Emit a clear warning so it shows up in server logs.
+      if (!vlTmdbId && ep.has("vidlink")) {
+        logger.warn(
+          { imdbId, type, sfTmdbThrew },
+          "VidLink: TMDB ID lookup returned null — provider will be skipped. " +
+          "Verify the server can reach api.themoviedb.org and that the TMDB API key is valid.",
+        );
+      }
       const isSeries = type === "series" && season !== undefined && episode !== undefined;
       const [ktResult, asResult, raResult, adResult, pxpResult, nmResult, sfResult, dfResult, ctResult, otResult, vlResult, mbResult, mwResult, vsResult, mdResult, hgResult, vpResult, hmResult, fkResult, hdResult] = await Promise.allSettled([
         ep.has("kartoons") ? getKartoonsStreams(meta.title, type as "movie" | "series", season, episode, apiBase(req), meta, imdbId) : Promise.resolve([]),
@@ -2465,7 +2577,7 @@ router.get("/stream/:type/:id.json", async (req, res) => {
         ep.has("dooflix") ? getDooflixStreams(apiBase(req), imdbId, type, season, episode) : Promise.resolve([]),
         ep.has("castletv") ? getCastleTvStreams(imdbId, type, meta.title, meta.year, season, episode) : Promise.resolve([]),
         ep.has("onetouchtv") ? getOneTouchTvStreams(meta.title, type as "movie" | "series", meta.year ?? null, season ?? null, episode ?? null, imdbId, null) : Promise.resolve([]),
-        (ep.has("vidlink") && sfTmdbId) ? fetchVidLinkStream(isSeries ? { type: "tv", tmdbId: sfTmdbId, season: season!, episode: episode! } : { type: "movie", tmdbId: sfTmdbId }) : Promise.resolve(null),
+        (ep.has("vidlink") && vlTmdbId) ? fetchVidLinkStream(isSeries ? { type: "tv", tmdbId: vlTmdbId, season: season!, episode: episode! } : { type: "movie", tmdbId: vlTmdbId }) : Promise.resolve(null),
         ep.has("moviebox") ? getMovieBoxStreams(meta, season, episode, req, imdbId) : Promise.resolve([]),
         ep.has("meowtv") ? getMeowTvStreams(type as "movie" | "series", imdbId, season, episode, apiBase(req), meta.title) : Promise.resolve([]),
         ep.has("vidsrc") ? getVidsrcStreams(type as "movie" | "series", imdbId, season, episode, apiBase(req)) : Promise.resolve([]),
@@ -2514,6 +2626,12 @@ router.get("/stream/:type/:id.json", async (req, res) => {
       if (ctResult.status === "rejected") logger.error({ err: ctResult.reason, imdbId }, "CastleTV: crashed");
       if (otResult.status === "rejected") logger.error({ err: otResult.reason, imdbId }, "OneTouchTV: crashed");
       if (vlResult.status === "rejected") logger.error({ err: vlResult.reason, imdbId }, "VidLink: crashed");
+      if (vlResult.status === "fulfilled" && vlResult.value === null && vlTmdbId) {
+        // fetchVidLinkStream returned null — either API was unreachable, WASM not
+        // initialised, or VidLink returned a non-200 status.  Check server logs
+        // for "VidLink API error" or "VidLink WASM warmup failed" entries.
+        logger.warn({ imdbId, vlTmdbId }, "VidLink: fetchVidLinkStream returned null — no streams. Check server logs for API/WASM errors.");
+      }
       if (mbResult.status === "rejected") logger.error({ err: mbResult.reason, imdbId }, "MovieBox: crashed");
       if (mwResult.status === "rejected") logger.error({ err: mwResult.reason, imdbId }, "MeowTV: crashed");
       if (vsResult.status === "rejected") logger.error({ err: vsResult.reason, imdbId }, "VidSrc: crashed");
