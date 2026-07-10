@@ -53,6 +53,7 @@ ENV LOG_LEVEL=info
 WORKDIR /app
 
 COPY --from=builder /workspace/artifacts/api-server/dist ./dist
+COPY --from=builder /workspace/artifacts/api-server/wasm ./wasm
 
 EXPOSE 7000
 

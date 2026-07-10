@@ -107,6 +107,8 @@ docker run -d -p 7000:7000 --name infinite-streams \
 
 ## Gotchas
 
+- VidLink Docker deploys (VPS/self-hosted): the Dockerfile's runtime stage must copy `artifacts/api-server/wasm/` alongside `dist/` — `lib/vidlink.ts` reads `wasm/script.js` and `wasm/fu.wasm` relative to `process.cwd()` at runtime. Without it, VidLink WASM init fails with ENOENT and the provider returns zero streams (works fine on Replit since it runs from source, so this only surfaces on Docker/VPS hosting).
+
 - HDHub4U title matching uses `cleanTitle()` before scoring — if a title scores below 0.5, check the raw Typesense title via `GET /api/debug/hdhub4u?title=…&type=movie`.
 - Cache TTL for stream results is 30 min. After a code change, clear cache by restarting the server.
 - IMDB IDs must be correct — wrong IDs cause MetaResolver to resolve to unrelated titles. Verify with TMDB: `https://api.themoviedb.org/3/find/{imdb_id}?external_source=imdb_id&api_key=5f39fd16e987a9e3fce30d55cf09b438`
