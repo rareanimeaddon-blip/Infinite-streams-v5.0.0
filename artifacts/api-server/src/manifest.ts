@@ -156,5 +156,5 @@ export const manifest = {
 };
 
 // Provider config — order must match PROVIDER_LIST in lib/provider-config.ts
-// Index: 0=kartoons 1=animesalt 2=rareanime 3=animedekho 4=piratexplay 5=netmirror 6=streamflix 7=dooflix 8=castletv 9=onetouchtv 10=vidlink 11=moviebox 12=meowtv 13=moviesdrive 14=hdghartv 15=vaplayer 16=hindmovies 17=fourkdhub 18=hdhub4u
+// Index: 0=kartoons 1=animesalt 2=rareanime 3=animedekho 4=piratexplay 5=netmirror 6=streamflix 7=dooflix 8=onetouchtv 9=vidlink 10=moviebox 11=meowtv 12=moviesdrive 13=hdghartv 14=vaplayer 15=hindmovies 16=fourkdhub 17=hdhub4u
 export const ALL_ENABLED_MASK = "1111111111111111111";
