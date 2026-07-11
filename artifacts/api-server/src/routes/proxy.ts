@@ -372,6 +372,110 @@ async function refreshFromDownloadPage(downloadPageUrl: string): Promise<string 
  *
  * When the type is ambiguous we sniff the first bytes of the response body.
  */
+// ─── GDFlix / GDLink / BusyCDN chain resolver ────────────────────────────────
+//
+// GDFlix pages (gdflix.dev/file/..., gdlink.dev/...) are intermediate HTML
+// pages that embed a link to instant.busycdn.xyz, which 302s to a
+// fastcdn-dl.pages.dev interstitial whose `?url=` query param is the actual
+// video file.
+//
+// The movies4u provider pre-resolves this chain at scrape time. When that
+// fails (Cloudflare challenge, different CDN backend, timeout) the raw
+// gdflix.dev URL lands in our proxy — we do the full resolution here instead
+// of serving HTML to the player.
+
+const GDFLIX_PROXY_ALLOWED_HOSTS = new Set([
+  "gdlink.dev",
+  "gdflix.dev",
+  "gdflix.lol",
+  "new1.gdflix.io",
+  "new2.gdflix.app",
+]);
+
+function isGdflixFamilyUrl(url: string): boolean {
+  try {
+    const { hostname, protocol } = new URL(url);
+    return protocol === "https:" && GDFLIX_PROXY_ALLOWED_HOSTS.has(hostname);
+  } catch { return false; }
+}
+
+function isBusyCdnUrl(url: string): boolean {
+  try { return new URL(url).hostname.endsWith("busycdn.xyz"); }
+  catch { return false; }
+}
+
+/** Follow a busycdn URL → fastcdn-dl.pages.dev?url=FINAL → return FINAL. */
+async function followBusyCdnToFinalUrl(busyUrl: string, referer: string): Promise<string | null> {
+  try {
+    const res = await fetch(busyUrl, {
+      headers: { "User-Agent": UPSTREAM_UA, Referer: referer },
+      signal: AbortSignal.timeout(12_000),
+      redirect: "follow",
+    });
+    const finalUrl = new URL(res.url);
+    res.body?.cancel();
+    const target = finalUrl.searchParams.get("url");
+    return (target?.startsWith("http")) ? target : null;
+  } catch { return null; }
+}
+
+/**
+ * Fetch a GDFlix/GDLink intermediate page and resolve it to a playable CDN URL.
+ * Priority:
+ *   1. instant.busycdn.xyz link → follow to fastcdn-dl → extract ?url= param
+ *   2. Any direct video file link (.mp4/.mkv) on the page
+ *   3. Any googlevideo.com URL on the page
+ * Returns null only if no CDN URL was found at all.
+ */
+async function resolveGdflixChain(gdflixUrl: string): Promise<string | null> {
+  try {
+    const res = await fetch(gdflixUrl, {
+      headers: { "User-Agent": UPSTREAM_UA, Referer: "https://m4ulinks.site/" },
+      signal: AbortSignal.timeout(12_000),
+      redirect: "follow",
+    });
+    if (!res.ok) {
+      logger.warn({ status: res.status, url: gdflixUrl.slice(0, 80) }, "GDFlix proxy: page fetch failed");
+      return null;
+    }
+    const html = await res.text();
+
+    // Priority 1: busycdn link
+    const busyMatch = html.match(/href="(https:\/\/instant\.busycdn\.xyz\/[^"]{10,})"/);
+    if (busyMatch?.[1]) {
+      const final = await followBusyCdnToFinalUrl(busyMatch[1], gdflixUrl);
+      if (final) {
+        logger.info({ final: final.slice(0, 80) }, "GDFlix proxy: resolved via busycdn");
+        return final;
+      }
+      // busycdn link found but ?url= extraction failed — return busycdn URL
+      // so downstream gets an intermediate that may still work for some players.
+      logger.warn({ busyUrl: busyMatch[1].slice(0, 80) }, "GDFlix proxy: busycdn follow failed — returning busycdn URL");
+      return busyMatch[1];
+    }
+
+    // Priority 2: direct video file link
+    const directVideo = html.match(/href="(https?:\/\/[^"]+\.(?:mp4|mkv|avi|mov)[^"]*)"/i);
+    if (directVideo?.[1]) {
+      logger.info({ url: directVideo[1].slice(0, 80) }, "GDFlix proxy: resolved via direct video link");
+      return directVideo[1].replace(/&amp;/g, "&");
+    }
+
+    // Priority 3: googlevideo.com URL
+    const gvMatch = html.match(/href="(https?:\/\/[^"]*googlevideo\.com\/[^"]*)"/i);
+    if (gvMatch?.[1]) {
+      logger.info({ url: gvMatch[1].slice(0, 80) }, "GDFlix proxy: resolved via googlevideo");
+      return gvMatch[1].replace(/&amp;/g, "&");
+    }
+
+    logger.warn({ url: gdflixUrl.slice(0, 80) }, "GDFlix proxy: no CDN URL found on page");
+    return null;
+  } catch (e) {
+    logger.warn({ err: e, url: gdflixUrl.slice(0, 80) }, "GDFlix proxy: resolution error");
+    return null;
+  }
+}
+
 function resolveContentType(raw: string, firstBytes?: Uint8Array): string {
   // ── Known wrong labels ────────────────────────────────────────────────────
   // "video/mkv" / "video/x-mkv" are not IANA types; ExoPlayer has no parser
@@ -1286,6 +1390,38 @@ router.all("/proxy", async (req, res) => {
   // token refresh re-runs the full 2-step extraction instead of re-fetching
   // the short-lived download-page URL stored in ref.
   const landingPage = lp ? decodeParam(lp) : undefined;
+
+  // ── GDFlix / GDLink intermediate page resolution ──────────────────────────
+  // The movies4u provider pre-resolves GDFlix chains at scrape time. When that
+  // fails (timeout, CF challenge, unexpected CDN backend) the raw gdflix.dev
+  // URL arrives here with our proxy wrapping it. Resolve the full chain now
+  // so the player gets an actual video file rather than an HTML page.
+  if (isGdflixFamilyUrl(targetUrl)) {
+    logger.info({ url: targetUrl.slice(0, 80) }, "Proxy: resolving GDFlix intermediate page at play time");
+    const resolved = await resolveGdflixChain(targetUrl);
+    if (resolved) {
+      logger.info({ resolved: resolved.slice(0, 80) }, "Proxy: GDFlix chain resolved");
+      targetUrl = resolved;
+    } else {
+      logger.warn({ url: targetUrl.slice(0, 80) }, "Proxy: GDFlix resolution failed — returning 502");
+      if (!res.headersSent) res.status(502).json({ error: "GDFlix: could not resolve to a video URL" });
+      return;
+    }
+  }
+
+  // ── BusyCDN intermediate URL (gdflix second hop) ──────────────────────────
+  // Arrives here when the scrape-time busycdn → fastcdn-dl step failed but
+  // the busycdn URL itself was found. Follow it now.
+  if (isBusyCdnUrl(targetUrl)) {
+    logger.info({ url: targetUrl.slice(0, 80) }, "Proxy: following BusyCDN intermediate URL at play time");
+    const resolved = await followBusyCdnToFinalUrl(targetUrl, "https://gdflix.dev/");
+    if (resolved) {
+      logger.info({ resolved: resolved.slice(0, 80) }, "Proxy: BusyCDN resolved");
+      targetUrl = resolved;
+    }
+    // If follow fails fall through — pipeUpstream will return an error response
+    // which is better than silently serving an interstitial HTML page.
+  }
 
   const isMpd = targetUrl.includes(".mpd") || targetUrl.includes("manifest");
 

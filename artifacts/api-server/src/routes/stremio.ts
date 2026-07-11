@@ -1142,6 +1142,40 @@ function proxyHindMoviezStreams(
   });
 }
 
+/**
+ * Movies4u GDFlix/BusyCDN stream router.
+ *
+ * The movies4u provider pre-resolves GDFlix chains at scrape time. When that
+ * fails the raw gdflix.dev / busycdn.xyz intermediate URL is returned with
+ * `behaviorHints.proxyHeaders` — which causes **Stremio's own built-in proxy**
+ * (port 11470) to fetch the HTML page and try to play it, showing garbage.
+ *
+ * Fix: replace those intermediate URLs with our proxy URL so our server can
+ * do the full GDFlix → busycdn → final CDN resolution at play time instead.
+ */
+const M4U_GDFLIX_HOSTS = new Set([
+  "gdlink.dev", "gdflix.dev", "gdflix.lol", "new1.gdflix.io", "new2.gdflix.app",
+]);
+
+function wrapM4uGdflixStreams(streams: unknown[], req: Request): unknown[] {
+  return (streams as Array<{ url?: string; behaviorHints?: unknown } & Record<string, unknown>>).map(s => {
+    if (!s.url) return s;
+    try {
+      const host = new URL(s.url).hostname;
+      const needsOurProxy = M4U_GDFLIX_HOSTS.has(host) || host.endsWith("busycdn.xyz");
+      if (!needsOurProxy) return s;
+      // Route through our proxy (which resolves the GDFlix chain server-side)
+      // instead of Stremio's proxyHeaders mechanism (which just forwards headers
+      // and serves whatever the intermediate URL returns — typically HTML).
+      return {
+        ...s,
+        url: `${apiBase(req)}/proxy?u=${encodeParam(s.url)}`,
+        behaviorHints: undefined,
+      };
+    } catch { return s; }
+  });
+}
+
 function neoCdnSourceToStream(src: NeoCdnSource): ADStream[] {
   // trycloudflare.com URLs (rawUrl) do NOT work directly — the tunnel only
   // serves content via the CF Worker proxy. Return only the worker-wrapped URL.
@@ -2598,7 +2632,10 @@ router.get("/stream/:type/:id.json", async (req, res) => {
       const vpStreams = vpResult.status === "fulfilled" ? vpResult.value : [];
       const cfStreams = cfResult.status === "fulfilled" ? cfResult.value : [];
       const hmStreams = hmResult.status === "fulfilled" ? proxyHindMoviezStreams(hmResult.value, req) : [];
-      const m4uStreams = m4uResult.status === "fulfilled" ? m4uResult.value : [];
+      const m4uStreams = wrapM4uGdflixStreams(
+        m4uResult.status === "fulfilled" ? m4uResult.value : [],
+        req,
+      );
       const fkStreams = fkResult.status === "fulfilled" ? fkResult.value : [];
       const hdStreams = hdResult.status === "fulfilled" ? hdResult.value : [];
 
@@ -2757,7 +2794,10 @@ router.get("/stream/:type/:id.json", async (req, res) => {
       const vpStreams = vpResult.status === "fulfilled" ? vpResult.value : [];
       const cfStreams = cfResult.status === "fulfilled" ? cfResult.value : [];
       const hmStreams = hmResult.status === "fulfilled" ? proxyHindMoviezStreams(hmResult.value, req) : [];
-      const m4uStreams = m4uResult.status === "fulfilled" ? m4uResult.value : [];
+      const m4uStreams = wrapM4uGdflixStreams(
+        m4uResult.status === "fulfilled" ? m4uResult.value : [],
+        req,
+      );
       const fkStreams = fkResult.status === "fulfilled" ? fkResult.value : [];
       const hdStreams = hdResult.status === "fulfilled" ? hdResult.value : [];
 
