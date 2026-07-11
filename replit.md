@@ -1,18 +1,18 @@
 # INFINITE STREAMS
 
-A Stremio addon (v8.8.0) that aggregates streams from 18 providers into a single manifest — movies, series, and anime with Indian-language content support.
+A Stremio addon (v8.8.0) that aggregates streams from 22 providers into a single manifest — movies, series, and anime with Indian-language content support.
 
 ## Run & Operate
 
 - `pnpm --filter @workspace/api-server run dev` — build + start the API server (port 8080 on Replit, proxied at `/api`)
 - `pnpm run typecheck` — full typecheck across all packages
-- `pnpm --filter @workspace/scripts run provider-test` — run the provider health-check against all 12 providers
+- `pnpm --filter @workspace/scripts run provider-test` — run the provider health-check against all providers
 
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
 - API: Express 5, esbuild (fully self-contained ESM bundle)
-- 17 stream providers: Kartoons, AnimeSalt, RareAnime, AnimeDekho, PirateXplay, NetMirror, StreamFlix, DooFlix, VidLink, MovieBox, MeowTV, MoviesDrive, HDGharTV, VaPlayer, HindMoviez, 4KHDHub, HDHub4U (CastleTV removed — was defective, replacement pending)
+- 22 stream providers: Kartoons, AnimeSalt, RareAnime, AnimeDekho, PirateXPlay, NetMirror, StreamFlix, DooFlix, CastleTV, OneTouchTV, VidLink, MovieBox, MeowTV, VidSrc, MoviesDrive, HDGharTV, VaPlayer, CineFreak, HindMoviez, Movies4u, 4KHDHub, HDHub4U
 - Title matching: universal shared matcher (`utils/match.ts`) used by every provider — see "Universal matching system" below
 - Health endpoint: `GET /api/healthz`
 

@@ -49,6 +49,9 @@ interface StreamResponse {
 //   MovieBox : "MovieBox"
 //   AnimeDekho: "AnimeDekho"
 //   RareAnime: "🌙 RareAnime [HLS]"
+//   CastleTV : "🏰 CastleTV [Lang] | {quality}"
+//   CineFreak: "CineFreak | {quality} | {audioType}"
+//   Movies4u : "⚡ StreamFlow | Movies4u | {quality}"
 //   HDGharTV, VaPlayer, StreamFlix, TIK2: pass-through s.name from provider
 // → ALWAYS take the FIRST line as the provider identifier.
 function extractProvider(stream: StremioStream): string {
@@ -70,6 +73,9 @@ function normaliseProvider(name: string): string {
   if (n.includes("animesalt") || n.includes("allinone"))  return "AnimeSalt";
   if (n.includes("rareanime"))                             return "RareAnime";
   if (n.includes("animedekho"))                            return "AnimeDekho";
+  if (n.includes("castletv") || n.includes("🏰"))           return "CastleTV";
+  if (n.includes("cinefreak"))                              return "CineFreak";
+  if (n.includes("movies4u"))                               return "Movies4u";
   if (n.includes("tik"))                                   return "TIK2";
   return name.slice(0, 28);
 }
@@ -133,7 +139,7 @@ function col(count: number): string {
 // ── Main ──────────────────────────────────────────────────────────────────────
 const ALL_PROVIDERS = [
   "HDHub4U", "4KHDHub", "HindMoviez", "HDGharTV", "VaPlayer", "MovieBox",
-  "DooFlix", "StreamFlix", "NetMirror", "TIK2",
+  "DooFlix", "StreamFlix", "NetMirror", "TIK2", "CastleTV", "CineFreak", "Movies4u",
   "AnimeSalt", "RareAnime", "AnimeDekho",
 ];
 

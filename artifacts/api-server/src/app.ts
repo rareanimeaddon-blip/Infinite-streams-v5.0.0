@@ -64,7 +64,8 @@ function serveLandingPage(req: express.Request, res: express.Response) {
 
   // Provider order MUST match PROVIDER_LIST in lib/provider-config.ts
   // 0=kartoons 1=animesalt 2=rareanime 3=animedekho 4=piratexplay 5=netmirror 6=streamflix
-  // 7=dooflix 8=onetouchtv 9=vidlink 10=moviebox 11=meowtv 12=moviesdrive 13=hdghartv 14=vaplayer 15=hindmovies 16=fourkdhub 17=hdhub4u
+  // 7=dooflix 8=castletv 9=onetouchtv 10=vidlink 11=moviebox 12=meowtv 13=vidsrc 14=moviesdrive
+  // 15=hdghartv 16=vaplayer 17=cinefreak 18=hindmovies 19=movies4u 20=fourkdhub 21=hdhub4u
   const providers: Array<{
     key: string;
     name: string;
@@ -116,6 +117,16 @@ function serveLandingPage(req: express.Request, res: express.Response) {
       category: "anime",
     },
     {
+      key: "piratexplay",
+      name: "PirateXPlay",
+      emoji: "🏴‍☠️",
+      color: "#eab308",
+      glow: "rgba(234,179,8,0.25)",
+      tags: ["TMDB Slugs", "Movies & Series", "Referer-Gated"],
+      desc: "TMDB-slug based streams from piratexplay.cc with season/episode navigation and referer-gated episode pages.",
+      category: "movies",
+    },
+    {
       key: "netmirror",
       name: "NetMirror",
       emoji: "🌐",
@@ -143,6 +154,16 @@ function serveLandingPage(req: express.Request, res: express.Response) {
       glow: "rgba(168,85,247,0.25)",
       tags: ["HLS", "Movies", "Series", "IMDB"],
       desc: "HLS streams via xpass.top — movie and series content matched by IMDB ID with M3U8 rewriting.",
+      category: "movies",
+    },
+    {
+      key: "castletv",
+      name: "CastleTV",
+      emoji: "🏰",
+      color: "#d946ef",
+      glow: "rgba(217,70,239,0.25)",
+      tags: ["AES-CBC", "Movies & Series", "Multi-Lang"],
+      desc: "AES-128-CBC decrypted API via api.hlowb.com — title-matched movies and series with multi-language track selection.",
       category: "movies",
     },
     {
@@ -186,6 +207,16 @@ function serveLandingPage(req: express.Request, res: express.Response) {
       category: "movies",
     },
     {
+      key: "vidsrc",
+      name: "VidSrc",
+      emoji: "📽️",
+      color: "#84cc16",
+      glow: "rgba(132,204,22,0.25)",
+      tags: ["IMDB Matched", "M3U8", "Movies & Series"],
+      desc: "IMDB-matched HLS streams via vidsrc-embed.ru with M3U8 parsing and quality-level selection.",
+      category: "movies",
+    },
+    {
       key: "moviesdrive",
       name: "MoviesDrive",
       emoji: "🚗",
@@ -216,6 +247,16 @@ function serveLandingPage(req: express.Request, res: express.Response) {
       category: "movies",
     },
     {
+      key: "cinefreak",
+      name: "CineFreak",
+      emoji: "🧊",
+      color: "#38bdf8",
+      glow: "rgba(56,189,248,0.25)",
+      tags: ["Multi-Quality", "Movies & Series", "CDN Resolved"],
+      desc: "Scraped from cinefreak.nl with multi-hop CDN link resolution via cinecloud.site and quality/size sorting.",
+      category: "movies",
+    },
+    {
       key: "hindmovies",
       name: "HindMoviez",
       emoji: "🎞️",
@@ -223,6 +264,16 @@ function serveLandingPage(req: express.Request, res: express.Response) {
       glow: "rgba(16,185,129,0.25)",
       tags: ["Bollywood", "Hindi Dub", "480p–4K", "Series"],
       desc: "Bollywood, Hollywood & Hindi-dubbed movies and series in 480p, 720p, 1080p & 4K.",
+      category: "movies",
+    },
+    {
+      key: "movies4u",
+      name: "Movies4u",
+      emoji: "📀",
+      color: "#f97316",
+      glow: "rgba(249,115,22,0.25)",
+      tags: ["1080p", "4K", "GDFlix", "HubCloud"],
+      desc: "IMDB-resolved movies and series scraped from Movies4u with pre-resolved GDFlix/HubCloud CDN links.",
       category: "movies",
     },
     {
@@ -294,7 +345,7 @@ function serveLandingPage(req: express.Request, res: express.Response) {
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<meta name="description" content="INFINITE STREAMS — 19 providers, one addon. Kartoons, AnimeSalt, RareAnime, AnimeDekho, NetMirror, StreamFlix, DooFlix, OneTouchTV, VidLink, MovieBox, MeowTV, MoviesDrive, HDGharTV, VaPlayer, HindMoviez, 4KHDHub, HDHub4U. Install in one click."/>
+<meta name="description" content="INFINITE STREAMS — 22 providers, one addon. Kartoons, AnimeSalt, RareAnime, AnimeDekho, PirateXPlay, NetMirror, StreamFlix, DooFlix, CastleTV, OneTouchTV, VidLink, MovieBox, MeowTV, VidSrc, MoviesDrive, HDGharTV, VaPlayer, CineFreak, HindMoviez, Movies4u, 4KHDHub, HDHub4U. Install in one click."/>
 <title>INFINITE STREAMS — Stremio Addon</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300..900;1,14..32,300..900&display=swap" rel="stylesheet"/>
@@ -511,7 +562,7 @@ footer{border-top:1px solid var(--border);padding:52px 0;text-align:center}
 
     <div class="hero-pill">
       <div class="hero-pill-dot"></div>
-      ${manifest.catalogs.length} catalogs &nbsp;·&nbsp; 18 providers &nbsp;·&nbsp; Live
+      ${manifest.catalogs.length} catalogs &nbsp;·&nbsp; ${providers.length} providers &nbsp;·&nbsp; Live
     </div>
 
     <div class="brand-logo">
@@ -523,7 +574,7 @@ footer{border-top:1px solid var(--border);padding:52px 0;text-align:center}
       <span class="h1-word2">STREAMS</span>
     </h1>
 
-    <p class="hero-sub">18 providers. One addon. Zero compromise.<br/>Movies, series &amp; anime — all in one install.</p>
+    <p class="hero-sub">${providers.length} providers. One addon. Zero compromise.<br/>Movies, series &amp; anime — all in one install.</p>
     <div class="credit-tag">Made by <a href="https://t.me/Master_si" target="_blank">@Master_si</a></div>
 
     <div class="install-box">
@@ -545,7 +596,7 @@ footer{border-top:1px solid var(--border);padding:52px 0;text-align:center}
     </div>
 
     <div class="stats-row">
-      <div class="stat"><div class="stat-num">13</div><div class="stat-lbl">Providers</div></div>
+      <div class="stat"><div class="stat-num">${providers.length}</div><div class="stat-lbl">Providers</div></div>
       <div class="stat"><div class="stat-num">${manifest.catalogs.length}</div><div class="stat-lbl">Catalogs</div></div>
       <div class="stat"><div class="stat-num">4K</div><div class="stat-lbl">Max Quality</div></div>
       <div class="stat"><div class="stat-num">∞</div><div class="stat-lbl">Content</div></div>
@@ -669,7 +720,7 @@ footer{border-top:1px solid var(--border);padding:52px 0;text-align:center}
       <img src="${BASE_PATH}/logo.png" alt="∞"/>
       <span class="footer-name">INFINITE STREAMS</span>
     </div>
-    <p class="footer-desc">18 providers, zero compromise. Movies, series &amp; anime from every corner of the web. Free forever.</p>
+    <p class="footer-desc">${providers.length} providers, zero compromise. Movies, series &amp; anime from every corner of the web. Free forever.</p>
     <div class="footer-links">
       <a href="${defaultManifestUrl}" target="_blank">manifest.json</a>
       <a href="${base}${BASE_PATH}/debug" class="footer-debug-btn">🛠 Debug Console</a>
@@ -677,7 +728,7 @@ footer{border-top:1px solid var(--border);padding:52px 0;text-align:center}
     </div>
     <div class="footer-status">
       <div class="footer-status-dot"></div>
-      By @Master_si &nbsp;·&nbsp; v${manifest.version} &nbsp;·&nbsp; 16 Providers
+      By @Master_si &nbsp;·&nbsp; v${manifest.version} &nbsp;·&nbsp; ${providers.length} Providers
     </div>
   </div>
 </footer>
@@ -687,7 +738,7 @@ footer{border-top:1px solid var(--border);padding:52px 0;text-align:center}
     <img src="${BASE_PATH}/logo.png" alt="∞"/>
     <div>
       <div class="sticky-bar-title">INFINITE STREAMS</div>
-      <div class="sticky-bar-sub">18 providers · one addon</div>
+      <div class="sticky-bar-sub">${providers.length} providers · one addon</div>
     </div>
   </div>
   <a href="${stremioUrl}" class="sticky-install" id="sticky-install-btn">
