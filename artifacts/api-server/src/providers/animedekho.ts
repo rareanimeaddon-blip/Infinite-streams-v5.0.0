@@ -635,7 +635,7 @@ export async function getNeoCdnStreams(
     // handles HEAD at the edge before the Worker script runs), so we cannot rely on
     // a HEAD probe to validate the worker. Using the page's own URL is more reliable
     // than keeping a hardcoded fallback that can silently go stale.
-    const FALLBACK_WORKER_URL = "https://jolly-salad-69ad.zenhashi.workers.dev/?url=";
+    const FALLBACK_WORKER_URL = "https://young-dust-31f3.reimoto.workers.dev/?url=";
 
     const rawPageWorkerUrl = mythHtml.match(/const\s+worker\s*=\s*["']([^"']+)["']/)?.[1]?.trim() ?? "";
     // Accept the page worker only if it looks like a real HTTPS URL ending with "?url=" or similar
