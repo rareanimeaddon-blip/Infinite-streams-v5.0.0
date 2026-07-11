@@ -5,3 +5,4 @@
 - [DooFlix CDN strategy](dooflix-cdn-strategy.md) — 1x2.space M3U8s are public but TikTok CDN segments block cloud IPs; return those URLs direct, proxy only Cloudflare-Worker sources.
 - [Stremio provider matching design](stremio-provider-matching-design.md) — title-alias cross-linking, findBestMatchWithRetry wiring, Layer1/Layer2 verify contract, anti-patterns to avoid.
 - [hubcloud.cx resolver](hubcloud-cx-resolver.md) — match its download button by id (`id="fsl"`), not hostname; the backend CDN hostname behind it changes over time.
+- [AnimeDekho NeoCDN worker URL](neocdn-worker-url.md) — page-embedded worker URL is authoritative; direct trycloudflare URLs never work.
