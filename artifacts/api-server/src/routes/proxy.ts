@@ -420,12 +420,65 @@ async function followBusyCdnToFinalUrl(busyUrl: string, referer: string): Promis
 }
 
 /**
+ * Follow the cdn.foxcloud.rest two-hop chain to a Google Video URL.
+ *
+ * Hop 1: cdn.foxcloud.rest/?url=... → 200 HTML with JS redirect to /upload?url=...
+ * Hop 2: cdn.foxcloud.rest/upload?url=... → page with Google Video download button
+ *
+ * The GDFlix page embeds the cdn.foxcloud.rest link as a static href, so no
+ * JavaScript execution is needed to start the chain — only to do Hop 1→2 follow.
+ */
+async function followFoxcloudChain(foxUrl: string, referer: string): Promise<string | null> {
+  try {
+    // Hop 1: cdn.foxcloud.rest/?url=...
+    const res1 = await fetch(foxUrl, {
+      headers: { "User-Agent": UPSTREAM_UA, Referer: referer },
+      signal: AbortSignal.timeout(10_000),
+      redirect: "follow",
+    });
+    if (!res1.ok) return null;
+    const html1 = await res1.text();
+
+    // Extract the /upload?url=... path from the JS redirect
+    const uploadMatch = html1.match(/window\.location\.href\s*=\s*["']([^"']*\/upload\?url=[^"']*)["']/);
+    if (!uploadMatch?.[1]) return null;
+    const uploadPath = uploadMatch[1];
+    const uploadUrl = uploadPath.startsWith("http")
+      ? uploadPath
+      : `https://cdn.foxcloud.rest${uploadPath.startsWith("/") ? "" : "/"}${uploadPath}`;
+
+    // Hop 2: cdn.foxcloud.rest/upload?url=...
+    const res2 = await fetch(uploadUrl, {
+      headers: { "User-Agent": UPSTREAM_UA, Referer: foxUrl },
+      signal: AbortSignal.timeout(10_000),
+      redirect: "follow",
+    });
+    if (!res2.ok) return null;
+    const html2 = await res2.text();
+
+    // Google Video URL in the download button href
+    const gvMatch = html2.match(/href="(https?:\/\/video-downloads\.googleusercontent\.com\/[^"]+)"/i);
+    if (gvMatch?.[1]) return gvMatch[1];
+
+    // Any direct video URL on the final page
+    const directMatch = html2.match(/href="(https?:\/\/[^"]+\.(?:mp4|mkv|avi|mov)[^"]*)"/i);
+    if (directMatch?.[1]) return directMatch[1].replace(/&amp;/g, "&");
+
+    return null;
+  } catch { return null; }
+}
+
+/**
  * Fetch a GDFlix/GDLink intermediate page and resolve it to a playable CDN URL.
- * Priority:
- *   1. instant.busycdn.xyz link → follow to fastcdn-dl → extract ?url= param
- *   2. Any direct video file link (.mp4/.mkv) on the page
- *   3. Any googlevideo.com URL on the page
- * Returns null only if no CDN URL was found at all.
+ *
+ * Priority order (highest → lowest reliability from server-side):
+ *   1. pixeldrain.com/u/{ID} or pixeldrain.dev/u/{ID}  → direct API streaming URL
+ *      (no extra hops, streams directly, confirmed 200 video/x-matroska)
+ *   2. cdn.foxcloud.rest/?url=... chain  → Google Video URL via 2-hop follow
+ *   3. instant.busycdn.xyz link (rare as static href, usually needs JS+Turnstile)
+ *      → follow to fastcdn-dl.pages.dev?url=FINAL
+ *   4. Any direct .mp4/.mkv href on the page
+ *   5. Any googlevideo.com href on the page
  */
 async function resolveGdflixChain(gdflixUrl: string): Promise<string | null> {
   try {
@@ -440,7 +493,27 @@ async function resolveGdflixChain(gdflixUrl: string): Promise<string | null> {
     }
     const html = await res.text();
 
-    // Priority 1: busycdn link
+    // Priority 1: Pixeldrain — direct streaming API, zero extra hops.
+    const pdMatch = html.match(/href="https?:\/\/pixeldrain\.(?:com|dev)\/u\/([A-Za-z0-9]+)"/);
+    if (pdMatch?.[1]) {
+      const pdUrl = `https://pixeldrain.com/api/file/${pdMatch[1]}`;
+      logger.info({ url: pdUrl }, "GDFlix proxy: resolved via Pixeldrain");
+      return pdUrl;
+    }
+
+    // Priority 2: foxcloud.rest chain → Google Video URL.
+    const foxMatch = html.match(/href="(https?:\/\/cdn\.foxcloud\.rest\/\?url=[^"]*)"/);
+    if (foxMatch?.[1]) {
+      const foxUrl = foxMatch[1].replace(/&amp;/g, "&");
+      const foxFinal = await followFoxcloudChain(foxUrl, gdflixUrl);
+      if (foxFinal) {
+        logger.info({ url: foxFinal.slice(0, 80) }, "GDFlix proxy: resolved via foxcloud chain");
+        return foxFinal;
+      }
+      logger.warn({ foxUrl: foxUrl.slice(0, 80) }, "GDFlix proxy: foxcloud chain failed");
+    }
+
+    // Priority 3: busycdn link (static href — rare, most pages require JS+Turnstile)
     const busyMatch = html.match(/href="(https:\/\/instant\.busycdn\.xyz\/[^"]{10,})"/);
     if (busyMatch?.[1]) {
       const final = await followBusyCdnToFinalUrl(busyMatch[1], gdflixUrl);
@@ -448,20 +521,18 @@ async function resolveGdflixChain(gdflixUrl: string): Promise<string | null> {
         logger.info({ final: final.slice(0, 80) }, "GDFlix proxy: resolved via busycdn");
         return final;
       }
-      // busycdn link found but ?url= extraction failed — return busycdn URL
-      // so downstream gets an intermediate that may still work for some players.
       logger.warn({ busyUrl: busyMatch[1].slice(0, 80) }, "GDFlix proxy: busycdn follow failed — returning busycdn URL");
       return busyMatch[1];
     }
 
-    // Priority 2: direct video file link
+    // Priority 4: any direct .mp4/.mkv link on the page
     const directVideo = html.match(/href="(https?:\/\/[^"]+\.(?:mp4|mkv|avi|mov)[^"]*)"/i);
     if (directVideo?.[1]) {
       logger.info({ url: directVideo[1].slice(0, 80) }, "GDFlix proxy: resolved via direct video link");
       return directVideo[1].replace(/&amp;/g, "&");
     }
 
-    // Priority 3: googlevideo.com URL
+    // Priority 5: any googlevideo.com href on the page
     const gvMatch = html.match(/href="(https?:\/\/[^"]*googlevideo\.com\/[^"]*)"/i);
     if (gvMatch?.[1]) {
       logger.info({ url: gvMatch[1].slice(0, 80) }, "GDFlix proxy: resolved via googlevideo");
