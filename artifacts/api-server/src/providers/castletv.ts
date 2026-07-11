@@ -360,11 +360,37 @@ interface CastleSeason {
   movieId?: string | number;
 }
 
+interface CastleTrackVideo {
+  resolution?: number;
+  resolutionDescription?: string;
+  size?: number;
+  premiumProPermission?: boolean;
+}
+
 interface CastleTrack {
   languageName?: string;
   abbreviate?: string;
   languageId?: string | number;
   existIndividualVideo?: boolean;
+  videos?: CastleTrackVideo[];
+}
+
+/**
+ * Episode/track metadata (from getDetails) already lists every resolution
+ * a track has, each flagged with `premiumProPermission`. Explicitly
+ * requesting a premium-gated resolution via getVideoByLanguage/getVideoShared
+ * makes the whole call fail (the track vanishes from results entirely,
+ * not just that one quality) — so we must request the highest resolution
+ * that does NOT require premium. The response for that request still
+ * includes the full `videos` ladder (all qualities, premium ones included)
+ * with working URLs, so nothing is lost by asking for the safe tier.
+ * Falls back to 720p (2) when no per-track quality metadata is available.
+ */
+function pickSafeResolution(videos?: CastleTrackVideo[]): number {
+  if (!videos || videos.length === 0) return 2;
+  const nonPremium = videos.filter((v) => !v.premiumProPermission && typeof v.resolution === "number");
+  const pool = nonPremium.length > 0 ? nonPremium : videos;
+  return Math.max(...pool.map((v) => v.resolution ?? 2));
 }
 
 interface CastleEpisode {
@@ -465,22 +491,22 @@ export async function getCastleTvStreams(
     const epEntry = episodes.find((e) => e.id?.toString() === episodeId);
     const tracks: CastleTrack[] = epEntry?.tracks ?? [];
 
-    const RESOLUTION = 2; // 720p (Castle may auto-upgrade to 1080p depending on content)
     const streams: CastleStream[] = [];
 
     // 8. Per-language streams (dubbed/subbed variants)
     for (const track of tracks) {
       if (!track.existIndividualVideo || !track.languageId) continue;
       const langLabel = `[${track.languageName ?? track.abbreviate ?? "Unknown"}]`;
+      const resolution = pickSafeResolution(track.videos);
       try {
         const raw = await getVideoByLanguage(
           secKey,
           activeId,
           episodeId,
           track.languageId.toString(),
-          RESOLUTION,
+          resolution,
         );
-        streams.push(...buildCastleStreams(raw, langLabel, titleLine, RESOLUTION));
+        streams.push(...buildCastleStreams(raw, langLabel, titleLine, resolution));
       } catch {
         // Per-language failures are normal — some tracks may not have individual videos
       }
@@ -488,8 +514,9 @@ export async function getCastleTvStreams(
 
     // 9. Fallback to the shared/default stream if no per-language streams found
     if (streams.length === 0) {
-      const raw = await getVideoShared(secKey, activeId, episodeId, RESOLUTION);
-      streams.push(...buildCastleStreams(raw, "[Shared]", titleLine, RESOLUTION));
+      const resolution = 2; // No per-track quality metadata available here; 720p is a safe non-premium default.
+      const raw = await getVideoShared(secKey, activeId, episodeId, resolution);
+      streams.push(...buildCastleStreams(raw, "[Shared]", titleLine, resolution));
     }
 
     return streams;

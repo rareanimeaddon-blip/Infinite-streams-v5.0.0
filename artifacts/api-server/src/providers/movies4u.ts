@@ -160,25 +160,94 @@ async function resolveVcloudUrl(startUrl: string): Promise<string | null> {
 
 // ─── hubcloud.cx resolver ─────────────────────────────────────────────────────
 
+function decodeHtmlEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#8211;/g, "–");
+}
+
 /**
- * Fetch a hubcloud.cx video page and extract a direct streamable URL.
- * gamerxyt.com/hubcloud.php tokens expire almost immediately, so we look
- * for a direct mp4/mkv URL or an alternative CDN link instead.
+ * Fetch a hubcloud.cx `/video/{id}` landing page and resolve it all the way
+ * down to a final, directly-fetchable CDN URL.
+ *
+ * This is a THREE-HOP chain, not a single fetch:
+ *   1. hubcloud.cx/video/{id}        → HTML page with a
+ *      gamerxyt.com/hubcloud.php?...&token=... button (the token here is
+ *      short-lived, so it must be extracted fresh each time — never cached).
+ *   2. gamerxyt.com/hubcloud.php?... → HTML page listing several CDN
+ *      backends for the same file. The "10Gbps" gpdl*.hubcloud.* button is
+ *      the most reliable: following its redirect chain
+ *      (gpdl.hubcloud.* → *.workers.dev → gamerxyt.com/dl.php?link=...)
+ *      lands on a `dl.php` URL whose `link` query param IS the final
+ *      Google-hosted video URL — no need to even fetch that page's body.
+ *   3. Fallbacks if the gpdl button is missing: a signed
+ *      r2.cloudflarestorage.com URL (has full AWS SigV4 auth, unlike the
+ *      *private* pub-*.r2.dev bucket links on the same page, which return
+ *      403 for everyone and must never be picked), then fsl.gigabytes.icu,
+ *      then any other direct video href.
+ *
+ * Previously this provider handed the raw hubcloud.cx landing-page URL
+ * straight to Stremio as the "stream" — that's an HTML page, not a video
+ * file, so playback exited immediately. Resolving the full chain at scrape
+ * time fixes that; the resolved CDN links we've observed carry multi-hour
+ * (or longer) validity, so pre-resolving well before play time is safe.
  */
 async function resolveHubcloudUrl(hubUrl: string): Promise<string | null> {
   try {
-    const res = await fetch(hubUrl, {
+    const page1Res = await fetch(hubUrl, {
       headers: BROWSER_HEADERS,
       signal: AbortSignal.timeout(10000),
     });
-    if (!res.ok) return null;
-    const html = await res.text();
-    // Direct video file link (most reliable)
-    const direct = html.match(/href="(https?:\/\/[^"]+\.(?:mp4|mkv)(?:\?[^"]{0,200})?)">/i);
-    if (direct?.[1]) return direct[1];
-    // Worker/CDN download button
-    const worker = html.match(/href="(https?:\/\/worker\.[^"]{10,}[^"]+)"/i);
-    if (worker?.[1]) return worker[1];
+    if (!page1Res.ok) return null;
+    const page1Html = await page1Res.text();
+
+    // Hop 1: find the gamerxyt.com/hubcloud.php intermediate link.
+    const phpMatch = page1Html.match(/href="(https?:\/\/gamerxyt\.com\/hubcloud\.php\?[^"]+)"/i);
+    if (!phpMatch?.[1]) return null;
+    const phpUrl = decodeHtmlEntities(phpMatch[1]);
+
+    const page2Res = await fetch(phpUrl, {
+      headers: { ...BROWSER_HEADERS, Referer: hubUrl },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!page2Res.ok) return null;
+    const page2Html = decodeHtmlEntities(await page2Res.text());
+
+    // Hop 2 (preferred): the "10Gbps" gpdl*.hubcloud.* button. Following its
+    // redirect chain lands on gamerxyt.com/dl.php?link=<final video URL> —
+    // read the `link` param straight off the final redirect target.
+    const gpdlMatch = page2Html.match(/href="(https?:\/\/gpdl\d*\.hubcloud\.[a-z]+\/\?id=[^"]+)"/i);
+    if (gpdlMatch?.[1]) {
+      try {
+        const gpdlRes = await fetch(gpdlMatch[1], {
+          headers: { ...BROWSER_HEADERS, Referer: hubUrl },
+          redirect: "follow",
+          signal: AbortSignal.timeout(15000),
+        });
+        const finalLink = new URL(gpdlRes.url).searchParams.get("link");
+        if (finalLink?.startsWith("http")) return finalLink;
+      } catch {
+        // fall through to the other backends below
+      }
+    }
+
+    // Hop 3 fallbacks — never pick a plain pub-*.r2.dev URL (private bucket,
+    // 403s for every requester); prefer the signed r2.cloudflarestorage.com
+    // URL or fsl.gigabytes.icu instead.
+    const r2Signed = page2Html.match(/href="(https?:\/\/[a-z0-9.-]*\.r2\.cloudflarestorage\.com\/[^"]+)"/i);
+    if (r2Signed?.[1]) return r2Signed[1];
+
+    const fsl = page2Html.match(/href="(https?:\/\/fsl\.gigabytes\.icu[^"]+)"/i);
+    if (fsl?.[1]) return fsl[1];
+
+    const direct = page2Html.match(
+      /href="(https?:\/\/(?!hubcloud\.cx)[^"]+\.(?:mp4|mkv)[^"]*)"/i,
+    );
+    if (direct?.[1] && !/pub-[0-9a-f]+\.r2\.dev\//i.test(direct[1])) return direct[1];
+
     return null;
   } catch {
     return null;
@@ -608,7 +677,13 @@ export async function getMovies4uStreams(
     //                  We return the raw intermediate URL and let the proxy
     //                  lazily resolve it at PLAY TIME so tokens are always fresh.
     //
-    //  • hubcloud — same lazy-proxy approach; tokens expire immediately.
+    //  • hubcloud — fully resolved to the final CDN URL (FSLv2/FSL/R2/GPDL/Workers)
+    //               at SCRAPE TIME via resolveHubcloudUrl(). The intermediate
+    //               hubcloud.cx page URL is never handed to the player directly —
+    //               that's an HTML landing page, not a playable file, which is why
+    //               streams used to exit immediately on play. The resolved CDN
+    //               link (e.g. signed R2 URL) carries a multi-hour expiry, so
+    //               resolving now (rather than lazily at play time) is safe.
     //
     // We keep up to MAX_HOSTS_PER_QUALITY distinct hosts per tier so Stremio
     // shows fallback mirrors as separate stream entries.
@@ -645,28 +720,40 @@ export async function getMovies4uStreams(
           eligible.push(ql);
         }
 
-        // ── Step B: pre-resolve gdflix-family URLs in parallel ────────────
+        // ── Step B: pre-resolve intermediate-page URLs in parallel ───────
         // For each gdlink/gdflix URL we fire a fetch RIGHT NOW (scrape time)
         // to obtain the stable busycdn CDN URL.  The proxy then only needs one
         // hop at play time instead of the full 3-hop intermediate chain.
-        // hubcloud URLs are NOT pre-resolved — their tokens expire in seconds.
+        // hubcloud.cx URLs are fully resolved to their final CDN file now —
+        // see resolveHubcloudUrl() for why lazy/never-resolved was the bug.
         return Promise.all(
           eligible.map(async (ql) => {
             const host = hostLabel(ql.url);
             let streamUrl = ql.url;
+            let needsProxy = true;
 
             if (isGdflixFamily(ql.url)) {
               const busyUrl = await preResolveToBusycdnUrl(ql.url);
               if (busyUrl) streamUrl = busyUrl;
               // On failure streamUrl stays as the raw gdlink/gdflix URL and
               // the proxy falls back to lazy resolution automatically.
+            } else if (ql.url.includes("hubcloud.cx") || ql.url.includes("hubcloud.bond")) {
+              const resolved = await resolveHubcloudUrl(ql.url);
+              if (resolved) {
+                // Final CDN file — hand it straight to the player, no proxy needed.
+                streamUrl = resolved;
+                needsProxy = false;
+              }
+              // On failure streamUrl stays as the raw hubcloud.cx landing page —
+              // Stremio can't play it, but we don't silently drop the entry;
+              // it'll surface as a dead stream rather than vanishing entirely.
             }
 
             return {
               quality: ql.quality, label: ql.label, size: ql.size,
-              host,          // display label (GDLink/GDFlix) uses original URL
-              url: streamUrl, // streaming URL (busycdn if pre-resolved)
-              needsProxy: true,
+              host,          // display label (GDLink/GDFlix/HubCloud) uses original URL
+              url: streamUrl, // streaming URL (resolved CDN file when possible)
+              needsProxy,
             } satisfies ResolvedLink;
           }),
         );
