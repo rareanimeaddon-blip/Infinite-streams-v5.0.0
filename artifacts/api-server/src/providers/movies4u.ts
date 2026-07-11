@@ -170,24 +170,30 @@ function decodeHtmlEntities(s: string): string {
 }
 
 /**
- * Fetch a hubcloud.cx `/video/{id}` landing page and resolve it all the way
- * down to a final, directly-fetchable CDN URL.
+ * Fetch a hubcloud.cx `/video/{id}` or `/drive/{id}` landing page and resolve
+ * it all the way down to a final, directly-fetchable CDN URL.
  *
- * This is a THREE-HOP chain, not a single fetch:
- *   1. hubcloud.cx/video/{id}        → HTML page with a
+ * This is a TWO-HOP chain, not a single fetch:
+ *   1. hubcloud.cx/{video,drive}/{id} → HTML page with a
  *      gamerxyt.com/hubcloud.php?...&token=... button (the token here is
  *      short-lived, so it must be extracted fresh each time — never cached).
- *   2. gamerxyt.com/hubcloud.php?... → HTML page listing several CDN
- *      backends for the same file. The "10Gbps" gpdl*.hubcloud.* button is
- *      the most reliable: following its redirect chain
- *      (gpdl.hubcloud.* → *.workers.dev → gamerxyt.com/dl.php?link=...)
- *      lands on a `dl.php` URL whose `link` query param IS the final
- *      Google-hosted video URL — no need to even fetch that page's body.
- *   3. Fallbacks if the gpdl button is missing: a signed
- *      r2.cloudflarestorage.com URL (has full AWS SigV4 auth, unlike the
- *      *private* pub-*.r2.dev bucket links on the same page, which return
- *      403 for everyone and must never be picked), then fsl.gigabytes.icu,
- *      then any other direct video href.
+ *   2. gamerxyt.com/hubcloud.php?...  → HTML page listing several CDN
+ *      backend buttons for the same file. hubcloud.cx has changed which
+ *      backend it offers more than once, so we try known button ids/classes
+ *      in priority order and verify the winner with a live HEAD request
+ *      rather than hardcoding one domain:
+ *        - id="fsl"  (btn-success) → currently `hub.whistle.lat/{hash}?token=...`,
+ *          a direct-download CDN link (previously this button pointed at
+ *          `fsl.gigabytes.icu`; the domain behind "fsl" has changed at least
+ *          twice — always resolve by button id, never by hardcoded hostname).
+ *        - the "10Gbps" gpdl*.hubcloud.* button (older layout) — follow its
+ *          redirect chain (gpdl.hubcloud.* → *.workers.dev →
+ *          gamerxyt.com/dl.php?link=...) and read the final Google-hosted
+ *          video URL off the `link` query param.
+ *        - a signed r2.cloudflarestorage.com URL (has full AWS SigV4 auth,
+ *          unlike the *private* pub-*.r2.dev bucket links on the same page,
+ *          which return 403 for everyone and must never be picked).
+ *        - any other direct video href as a last resort.
  *
  * Previously this provider handed the raw hubcloud.cx landing-page URL
  * straight to Stremio as the "stream" — that's an HTML page, not a video
@@ -216,9 +222,29 @@ async function resolveHubcloudUrl(hubUrl: string): Promise<string | null> {
     if (!page2Res.ok) return null;
     const page2Html = decodeHtmlEntities(await page2Res.text());
 
-    // Hop 2 (preferred): the "10Gbps" gpdl*.hubcloud.* button. Following its
-    // redirect chain lands on gamerxyt.com/dl.php?link=<final video URL> —
-    // read the `link` param straight off the final redirect target.
+    // Hop 2a (current preferred): the button with id="fsl" (btn-success).
+    // Its target domain has changed hostnames before (fsl.gigabytes.icu →
+    // hub.whistle.lat) — match by the button's id attribute, not by domain,
+    // and confirm it's a real file with a HEAD request before trusting it.
+    const fslBtnMatch = page2Html.match(/<a\s+href="([^"]+)"\s+id="fsl"/i);
+    if (fslBtnMatch?.[1]) {
+      const candidate = decodeHtmlEntities(fslBtnMatch[1]);
+      try {
+        const headRes = await fetch(candidate, {
+          method: "HEAD",
+          headers: { ...BROWSER_HEADERS, Referer: phpUrl },
+          redirect: "follow",
+          signal: AbortSignal.timeout(10000),
+        });
+        if (headRes.ok) return headRes.url || candidate;
+      } catch {
+        // fall through to the other backends below
+      }
+    }
+
+    // Hop 2b (older layout): the "10Gbps" gpdl*.hubcloud.* button. Following
+    // its redirect chain lands on gamerxyt.com/dl.php?link=<final video URL>
+    // — read the `link` param straight off the final redirect target.
     const gpdlMatch = page2Html.match(/href="(https?:\/\/gpdl\d*\.hubcloud\.[a-z]+\/\?id=[^"]+)"/i);
     if (gpdlMatch?.[1]) {
       try {
@@ -234,9 +260,9 @@ async function resolveHubcloudUrl(hubUrl: string): Promise<string | null> {
       }
     }
 
-    // Hop 3 fallbacks — never pick a plain pub-*.r2.dev URL (private bucket,
+    // Hop 2c fallbacks — never pick a plain pub-*.r2.dev URL (private bucket,
     // 403s for every requester); prefer the signed r2.cloudflarestorage.com
-    // URL or fsl.gigabytes.icu instead.
+    // URL instead.
     const r2Signed = page2Html.match(/href="(https?:\/\/[a-z0-9.-]*\.r2\.cloudflarestorage\.com\/[^"]+)"/i);
     if (r2Signed?.[1]) return r2Signed[1];
 
