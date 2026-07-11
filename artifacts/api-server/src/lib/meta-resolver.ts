@@ -8,6 +8,8 @@ export interface ResolvedMeta {
   type: "movie" | "series";
   title: string;
   originalTitle?: string;
+  /** ISO 639-1 language code for the title's original language, e.g. "en", "hi", "ta". */
+  originalLanguage?: string;
   year?: number;
   aliases: string[];
 }
@@ -66,6 +68,7 @@ interface TmdbFindItem {
   name?: string;
   original_title?: string;
   original_name?: string;
+  original_language?: string;
   release_date?: string;
   first_air_date?: string;
 }
@@ -98,6 +101,7 @@ async function fromTmdb(
     if (!title) return null;
 
     const originalTitle = item.original_title ?? item.original_name;
+    const originalLanguage = item.original_language;
     const dateStr = item.release_date ?? item.first_air_date ?? "";
     const year = dateStr ? parseInt(dateStr.slice(0, 4), 10) : undefined;
 
@@ -124,10 +128,11 @@ async function fromTmdb(
       /* aliases are optional */
     }
 
-    logger.debug({ imdbId, title, year, aliases }, "MetaResolver: TMDB hit");
+    logger.debug({ imdbId, title, year, aliases, originalLanguage }, "MetaResolver: TMDB hit");
     return {
       title,
       originalTitle: originalTitle && originalTitle !== title ? originalTitle : undefined,
+      originalLanguage,
       year,
       aliases,
     };
@@ -167,6 +172,7 @@ export async function resolveMetaFromTmdbId(
       name?: string;
       original_title?: string;
       original_name?: string;
+      original_language?: string;
       release_date?: string;
       first_air_date?: string;
       external_ids?: { imdb_id?: string };
@@ -196,6 +202,7 @@ export async function resolveMetaFromTmdbId(
       type,
       title,
       originalTitle: originalTitle !== title ? originalTitle : undefined,
+      originalLanguage: d.original_language,
       year,
       aliases: [...new Set(aliases)].slice(0, 12),
     };
@@ -263,6 +270,7 @@ export async function resolveMeta(
     type,
     title,
     originalTitle: tmdbData?.originalTitle,
+    originalLanguage: tmdbData?.originalLanguage,
     year: cineData?.year ?? tmdbData?.year,
     aliases: [...aliasSet].slice(0, 12),
   };
