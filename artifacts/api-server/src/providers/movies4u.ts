@@ -333,14 +333,22 @@ function isGdflixFamily(url: string): boolean {
 }
 
 /**
- * Fetch a gdlink/gdflix intermediate page and extract the busycdn CDN URL.
- * busycdn URLs are content-addressed (stable hash, no expiry token) so it is
- * safe to resolve them minutes before the user actually hits play.
+ * Fetch a gdlink/gdflix intermediate page, extract the busycdn CDN URL, then
+ * follow busycdn's own redirect to obtain the FINAL playable CDN file.
+ *
+ * busycdn.xyz does NOT serve the video directly — it 302s to an interstitial
+ * "Download Link Generated / Please Wait" page at fastcdn-dl.pages.dev
+ * (client-rendered, requires JS to auto-continue), which is why handing the
+ * raw busycdn URL to a player just shows a stuck loading page instead of
+ * playing. The real target is exposed as the `url` query param on that
+ * interstitial's address — we read it straight off the redirect location
+ * without needing to execute any JS, then verify it with a live HEAD request
+ * before trusting it.
  *
  * Only fetches URLs on the GDFLIX_ALLOWED_HOSTS allowlist (SSRF guard).
  * redirect:"follow" is used here — this is a scraper-side fetch (not a user-
  * controlled proxy hop) and the allowed-host check ensures the initial URL is
- * trusted; redirect targets are gdfix's own CDN chain, not user-supplied.
+ * trusted; redirect targets are gdflix's own CDN chain, not user-supplied.
  */
 async function preResolveToBusycdnUrl(url: string): Promise<string | null> {
   // Hard allowlist check before any network activity
@@ -354,7 +362,31 @@ async function preResolveToBusycdnUrl(url: string): Promise<string | null> {
     if (!res.ok) return null;
     const html = await res.text();
     const m = html.match(/href="(https:\/\/instant\.busycdn\.xyz\/[^"]{20,})"/);
-    return m?.[1] ?? null;
+    const busyUrl = m?.[1];
+    if (!busyUrl) return null;
+
+    // Follow busycdn's redirect to the fastcdn-dl.pages.dev interstitial and
+    // pull the real CDN file straight out of its `url` query param.
+    const busyRes = await fetch(busyUrl, {
+      headers: { ...BROWSER_HEADERS, Referer: url },
+      signal: AbortSignal.timeout(10_000),
+      redirect: "follow",
+    });
+    const finalUrl = new URL(busyRes.url);
+    busyRes.body?.cancel();
+    const target = finalUrl.searchParams.get("url");
+    if (!target) return busyUrl; // interstitial layout changed — fall back to busycdn link
+
+    // Verify the extracted CDN link is actually alive before trusting it.
+    const headRes = await fetch(target, {
+      method: "HEAD",
+      headers: { ...BROWSER_HEADERS, Referer: busyUrl },
+      signal: AbortSignal.timeout(8_000),
+      redirect: "follow",
+    }).catch(() => null);
+    if (headRes?.ok) return headRes.url || target;
+
+    return busyUrl; // verification failed — fall back to busycdn link
   } catch {
     return null; // network error / timeout — caller falls back to lazy proxy
   }
@@ -759,8 +791,15 @@ export async function getMovies4uStreams(
             let needsProxy = true;
 
             if (isGdflixFamily(ql.url)) {
-              const busyUrl = await preResolveToBusycdnUrl(ql.url);
-              if (busyUrl) streamUrl = busyUrl;
+              const resolved = await preResolveToBusycdnUrl(ql.url);
+              if (resolved) {
+                streamUrl = resolved;
+                // Fully resolved to the final CDN file (not just the busycdn
+                // interstitial link) — no proxy hop needed. Only the busycdn
+                // link itself (interstitial-layout-changed fallback) still
+                // needs the proxy's lazy resolution.
+                needsProxy = resolved.includes("instant.busycdn.xyz");
+              }
               // On failure streamUrl stays as the raw gdlink/gdflix URL and
               // the proxy falls back to lazy resolution automatically.
             } else if (ql.url.includes("hubcloud.cx") || ql.url.includes("hubcloud.bond")) {
@@ -796,7 +835,7 @@ export async function getMovies4uStreams(
       .flat()
       .map((item): Movies4uStream => {
         const s: Movies4uStream = {
-          name:  `⚡ StreamFlow | Movies4u | ${item.quality}`,
+          name:  `⚡ StreamFlow | Movies4u | ${item.host} | ${item.quality}`,
           title: `🎬 ${title}${epLabel}${year ? ` (${year})` : ""}\n⚡ ${item.quality} | 💾 ${item.size} | ⏱️ ${runtimeStr} | 🌐 ${item.host}\n🎞️ ${item.label}`,
           url:   item.url,
         };
