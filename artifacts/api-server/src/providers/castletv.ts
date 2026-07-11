@@ -329,8 +329,9 @@ function buildCastleStreams(
         ? `${urlQualMatch[1]}p`
         : String(v.resolutionDescription ?? v.resolution ?? defaultQual).replace(/^(SD|HD|FHD)\s+/i, "");
 
+      const nameTag = langLabel ? `CastleTV ${langLabel}` : "CastleTV";
       streams.push({
-        name: `🏰 CastleTV ${langLabel} | ${qual}`,
+        name: `🏰 ${nameTag} | ${qual}`,
         title: `🎬 ${titleLine}\n💎 ${qual} | 💾 ${formatSize(v.size)} | 🏰 Castle`,
         url: videoUrl,
         behaviorHints: {
@@ -344,8 +345,9 @@ function buildCastleStreams(
     if (!videoUrl) return [];
     const urlQualMatch = videoUrl.match(/\/(\d{3,4})\//);
     const qual = urlQualMatch ? `${urlQualMatch[1]}p` : defaultQual;
+    const nameTag = langLabel ? `CastleTV ${langLabel}` : "CastleTV";
     streams.push({
-      name: `🏰 CastleTV ${langLabel} | ${qual}`,
+      name: `🏰 ${nameTag} | ${qual}`,
       title: `🎬 ${titleLine}\n💎 ${qual} | 💾 ${formatSize(data.size)} | 🏰 Castle`,
       url: videoUrl,
       behaviorHints: {
@@ -505,76 +507,26 @@ export async function getCastleTvStreams(
 
     const streams: CastleStream[] = [];
 
-    // 8. Per-language streams — request each non-premium resolution separately.
-    //    We cannot rely on a single API call returning the full quality ladder in
-    //    its `videos` array; in practice the response only contains the requested
-    //    resolution. Requesting a premium-gated resolution makes the call fail
-    //    entirely, so we only request resolutions marked non-premium in the track
-    //    metadata. Calls run in parallel per track to keep latency low.
-    //
-    //    NOTE: existIndividualVideo=false does NOT mean no per-language URL exists.
-    //    The API returns separate URLs per languageId regardless of that flag —
-    //    it just indicates whether a separately encoded file exists vs. a language
-    //    filter applied to the shared HLS stream. We attempt every track.
-    for (const track of tracks) {
-      if (!track.languageId) continue;
-      const langLabel = `[${track.languageName ?? track.abbreviate ?? "Unknown"}]`;
+    // 8. Fetch one shared stream per quality tier (1080p → 720p → 480p) in parallel.
+    //    The shared HLS stream has all available audio languages embedded as tracks,
+    //    so the user selects language inside the player rather than choosing a
+    //    separate link per language. Premium-gated resolutions throw and are silently
+    //    dropped, so only actually available qualities make it through.
+    const sharedResults = await Promise.allSettled(
+      [3, 2, 1].map((resolution) =>
+        getVideoShared(secKey, activeId, episodeId, resolution)
+          .then((raw) => ({ raw, resolution })),
+      ),
+    );
 
-      // Build the ordered list of non-premium resolutions for this track (highest first).
-      const nonPremiumResolutions = (track.videos ?? [])
-        .filter((v) => !v.premiumProPermission && typeof v.resolution === "number")
-        .map((v) => v.resolution as number)
-        .sort((a, b) => b - a);
-
-      // Fall back to all standard resolutions when the track has no metadata —
-      // this covers tracks where existIndividualVideo=false (no per-track video
-      // list), so we probe all three tiers and let failures be caught silently.
-      const resolutionsToTry = nonPremiumResolutions.length > 0 ? nonPremiumResolutions : [3, 2, 1];
-
-      logger.debug({ langLabel, resolutionsToTry }, "CastleTV: fetching per-language resolutions");
-
-      const results = await Promise.allSettled(
-        resolutionsToTry.map((resolution) =>
-          getVideoByLanguage(secKey, activeId, episodeId, track.languageId!.toString(), resolution)
-            .then((raw) => ({ raw, resolution })),
-        ),
-      );
-
-      const seenUrls = new Set<string>();
-      for (const r of results) {
-        if (r.status !== "fulfilled") continue;
-        const { raw, resolution } = r.value;
-        for (const s of buildCastleStreams(raw, langLabel, titleLine, resolution)) {
-          if (!seenUrls.has(s.url)) {
-            seenUrls.add(s.url);
-            streams.push(s);
-          }
-        }
-      }
-    }
-
-    // 9. Fallback: shared/default stream when no per-language tracks exist.
-    //    Try all three standard resolutions in parallel; premium-gated ones throw
-    //    and are caught, so only actually available qualities make it through.
-    if (streams.length === 0) {
-      logger.debug({ activeId, episodeId }, "CastleTV: no per-language streams, trying shared resolutions");
-
-      const sharedResults = await Promise.allSettled(
-        [3, 2, 1].map((resolution) =>
-          getVideoShared(secKey, activeId, episodeId, resolution)
-            .then((raw) => ({ raw, resolution })),
-        ),
-      );
-
-      const seenUrls = new Set<string>();
-      for (const r of sharedResults) {
-        if (r.status !== "fulfilled") continue;
-        const { raw, resolution } = r.value;
-        for (const s of buildCastleStreams(raw, "[Shared]", titleLine, resolution)) {
-          if (!seenUrls.has(s.url)) {
-            seenUrls.add(s.url);
-            streams.push(s);
-          }
+    const seenUrls = new Set<string>();
+    for (const r of sharedResults) {
+      if (r.status !== "fulfilled") continue;
+      const { raw, resolution } = r.value;
+      for (const s of buildCastleStreams(raw, "", titleLine, resolution)) {
+        if (!seenUrls.has(s.url)) {
+          seenUrls.add(s.url);
+          streams.push(s);
         }
       }
     }
