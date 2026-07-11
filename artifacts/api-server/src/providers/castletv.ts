@@ -310,32 +310,44 @@ function buildCastleStreams(
   resolution: number,
 ): CastleStream[] {
   const data = unwrap(raw) as VideoPayload;
-  if (!data.videoUrl) return [];
+  if (!data.videoUrl && !(data.videos?.length)) return [];
 
   const defaultQual = resolutionLabel(resolution);
   const streams: CastleStream[] = [];
 
   if (data.videos && data.videos.length > 0) {
     for (const v of data.videos) {
-      // Strip redundant prefix tags like "SD ", "HD ", "FHD " that Castle sometimes prepends
-      const qual = String(
-        v.resolutionDescription ?? v.resolution ?? defaultQual,
-      ).replace(/^(SD|HD|FHD)\s+/i, "");
+      const videoUrl = v.url ?? data.videoUrl;
+      if (!videoUrl) continue;
+
+      // Castle's resolutionDescription is unreliable — it often returns "480P"
+      // regardless of the actual stream quality. Derive the label from the URL
+      // path instead (e.g. ".../720/index.m3u8" → "720p"), falling back to the
+      // resolution code we requested (defaultQual) which is always accurate.
+      const urlQualMatch = videoUrl.match(/\/(\d{3,4})\//);
+      const qual = urlQualMatch
+        ? `${urlQualMatch[1]}p`
+        : String(v.resolutionDescription ?? v.resolution ?? defaultQual).replace(/^(SD|HD|FHD)\s+/i, "");
 
       streams.push({
         name: `🏰 CastleTV ${langLabel} | ${qual}`,
         title: `🎬 ${titleLine}\n💎 ${qual} | 💾 ${formatSize(v.size)} | 🏰 Castle`,
-        url: v.url ?? data.videoUrl,
+        url: videoUrl,
         behaviorHints: {
           proxyHeaders: { request: PLAYBACK_HEADERS },
         },
       });
     }
   } else {
+    // No videos array — use the single videoUrl with the requested resolution label.
+    const videoUrl = data.videoUrl;
+    if (!videoUrl) return [];
+    const urlQualMatch = videoUrl.match(/\/(\d{3,4})\//);
+    const qual = urlQualMatch ? `${urlQualMatch[1]}p` : defaultQual;
     streams.push({
-      name: `🏰 CastleTV ${langLabel} | ${defaultQual}`,
-      title: `🎬 ${titleLine}\n💎 ${defaultQual} | 💾 ${formatSize(data.size)} | 🏰 Castle`,
-      url: data.videoUrl,
+      name: `🏰 CastleTV ${langLabel} | ${qual}`,
+      title: `🎬 ${titleLine}\n💎 ${qual} | 💾 ${formatSize(data.size)} | 🏰 Castle`,
+      url: videoUrl,
       behaviorHints: {
         proxyHeaders: { request: PLAYBACK_HEADERS },
       },
@@ -493,30 +505,71 @@ export async function getCastleTvStreams(
 
     const streams: CastleStream[] = [];
 
-    // 8. Per-language streams (dubbed/subbed variants)
+    // 8. Per-language streams — request each non-premium resolution separately.
+    //    We cannot rely on a single API call returning the full quality ladder in
+    //    its `videos` array; in practice the response only contains the requested
+    //    resolution. Requesting a premium-gated resolution makes the call fail
+    //    entirely, so we only request resolutions marked non-premium in the track
+    //    metadata. Calls run in parallel per track to keep latency low.
     for (const track of tracks) {
       if (!track.existIndividualVideo || !track.languageId) continue;
       const langLabel = `[${track.languageName ?? track.abbreviate ?? "Unknown"}]`;
-      const resolution = pickSafeResolution(track.videos);
-      try {
-        const raw = await getVideoByLanguage(
-          secKey,
-          activeId,
-          episodeId,
-          track.languageId.toString(),
-          resolution,
-        );
-        streams.push(...buildCastleStreams(raw, langLabel, titleLine, resolution));
-      } catch {
-        // Per-language failures are normal — some tracks may not have individual videos
+
+      // Build the ordered list of non-premium resolutions for this track (highest first).
+      const nonPremiumResolutions = (track.videos ?? [])
+        .filter((v) => !v.premiumProPermission && typeof v.resolution === "number")
+        .map((v) => v.resolution as number)
+        .sort((a, b) => b - a);
+
+      // Fall back to [720p] if the track has no resolution metadata at all.
+      const resolutionsToTry = nonPremiumResolutions.length > 0 ? nonPremiumResolutions : [2];
+
+      logger.debug({ langLabel, resolutionsToTry }, "CastleTV: fetching per-language resolutions");
+
+      const results = await Promise.allSettled(
+        resolutionsToTry.map((resolution) =>
+          getVideoByLanguage(secKey, activeId, episodeId, track.languageId!.toString(), resolution)
+            .then((raw) => ({ raw, resolution })),
+        ),
+      );
+
+      const seenUrls = new Set<string>();
+      for (const r of results) {
+        if (r.status !== "fulfilled") continue;
+        const { raw, resolution } = r.value;
+        for (const s of buildCastleStreams(raw, langLabel, titleLine, resolution)) {
+          if (!seenUrls.has(s.url)) {
+            seenUrls.add(s.url);
+            streams.push(s);
+          }
+        }
       }
     }
 
-    // 9. Fallback to the shared/default stream if no per-language streams found
+    // 9. Fallback: shared/default stream when no per-language tracks exist.
+    //    Try all three standard resolutions in parallel; premium-gated ones throw
+    //    and are caught, so only actually available qualities make it through.
     if (streams.length === 0) {
-      const resolution = 2; // No per-track quality metadata available here; 720p is a safe non-premium default.
-      const raw = await getVideoShared(secKey, activeId, episodeId, resolution);
-      streams.push(...buildCastleStreams(raw, "[Shared]", titleLine, resolution));
+      logger.debug({ activeId, episodeId }, "CastleTV: no per-language streams, trying shared resolutions");
+
+      const sharedResults = await Promise.allSettled(
+        [3, 2, 1].map((resolution) =>
+          getVideoShared(secKey, activeId, episodeId, resolution)
+            .then((raw) => ({ raw, resolution })),
+        ),
+      );
+
+      const seenUrls = new Set<string>();
+      for (const r of sharedResults) {
+        if (r.status !== "fulfilled") continue;
+        const { raw, resolution } = r.value;
+        for (const s of buildCastleStreams(raw, "[Shared]", titleLine, resolution)) {
+          if (!seenUrls.has(s.url)) {
+            seenUrls.add(s.url);
+            streams.push(s);
+          }
+        }
+      }
     }
 
     return streams;
