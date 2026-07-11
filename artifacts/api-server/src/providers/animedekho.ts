@@ -627,20 +627,29 @@ export async function getNeoCdnStreams(
       return [];
     }
 
-    // Always use the hardcoded known-good worker to proxy trycloudflare.com source URLs.
+    // Prefer the worker URL embedded in the myth player page — AnimeDekho maintains
+    // it themselves and update it when it rotates, so it is always authoritative.
+    // Fall back to the last-known-good hardcoded URL only when the page provides none.
     //
-    // The myth player MUST proxy raw trycloudflare.com URLs through a Cloudflare Worker —
-    // direct trycloudflare.com URLs error when played in Stremio.
-    //
-    // We do NOT probe the page's embedded worker URL because HEAD probes are unreliable:
-    // a dead CF Worker can respond 2xx/3xx to HEAD while still returning 530 on actual
-    // GET playback requests (CF handles HEAD at the edge before the Worker script runs).
-    // The hardcoded fallback is user-verified working; update it here if it ever rotates.
-    const ACTIVE_WORKER_URL = "https://jolly-salad-69ad.zenhashi.workers.dev/?url=";
+    // Background: a dead CF Worker still responds 2xx to HEAD requests (Cloudflare
+    // handles HEAD at the edge before the Worker script runs), so we cannot rely on
+    // a HEAD probe to validate the worker. Using the page's own URL is more reliable
+    // than keeping a hardcoded fallback that can silently go stale.
+    const FALLBACK_WORKER_URL = "https://jolly-salad-69ad.zenhashi.workers.dev/?url=";
 
-    // Log the page's worker URL for future reference / debugging, but don't use it.
-    const pageWorkerUrl = mythHtml.match(/const\s+worker\s*=\s*["']([^"']+)["']/)?.[1] ?? "";
-    logger.info({ mythUrl, pageWorkerUrl: pageWorkerUrl || "(none)", activeWorker: ACTIVE_WORKER_URL }, "getNeoCdnStreams: using hardcoded worker");
+    const rawPageWorkerUrl = mythHtml.match(/const\s+worker\s*=\s*["']([^"']+)["']/)?.[1]?.trim() ?? "";
+    // Accept the page worker only if it looks like a real HTTPS URL ending with "?url=" or similar
+    const pageWorkerUrl = rawPageWorkerUrl.startsWith("https://") ? rawPageWorkerUrl : "";
+    // Normalise: worker URLs must end with a query-string that the raw URL is appended to
+    const normaliseWorker = (w: string) => (w.includes("?") ? w : w + "?url=");
+    const ACTIVE_WORKER_URL = pageWorkerUrl
+      ? normaliseWorker(pageWorkerUrl)
+      : FALLBACK_WORKER_URL;
+
+    logger.info(
+      { mythUrl, pageWorkerUrl: pageWorkerUrl || "(none)", activeWorker: ACTIVE_WORKER_URL, usingPage: !!pageWorkerUrl },
+      "getNeoCdnStreams: resolved worker URL",
+    );
 
     const fetchEndpoint = `${BASE_URL}/aaa/myth/fetch.php?id=${fetchId}`;
     const fetchRaw = await fetchText(fetchEndpoint, {
