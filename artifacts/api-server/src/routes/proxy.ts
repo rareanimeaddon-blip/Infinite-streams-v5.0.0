@@ -1470,14 +1470,18 @@ router.all("/proxy", async (req, res) => {
   if (isGdflixFamilyUrl(targetUrl)) {
     logger.info({ url: targetUrl.slice(0, 80) }, "Proxy: resolving GDFlix intermediate page at play time");
     const resolved = await resolveGdflixChain(targetUrl);
-    if (resolved) {
-      logger.info({ resolved: resolved.slice(0, 80) }, "Proxy: GDFlix chain resolved");
-      targetUrl = resolved;
-    } else {
+    if (!resolved) {
       logger.warn({ url: targetUrl.slice(0, 80) }, "Proxy: GDFlix resolution failed — returning 502");
       if (!res.headersSent) res.status(502).json({ error: "GDFlix: could not resolve to a video URL" });
       return;
     }
+    logger.info({ resolved: resolved.slice(0, 80) }, "Proxy: GDFlix chain resolved — 302 redirect");
+    // Redirect directly to the CDN URL rather than piping it through our server.
+    // Pixeldrain API and Google Video URLs are fully public (no special headers
+    // needed) and support range requests natively — piping a multi-GB file
+    // through our server wastes bandwidth and breaks seeking.
+    if (!res.headersSent) res.redirect(302, resolved);
+    return;
   }
 
   // ── BusyCDN intermediate URL (gdflix second hop) ──────────────────────────
