@@ -511,8 +511,13 @@ export async function getCastleTvStreams(
     //    resolution. Requesting a premium-gated resolution makes the call fail
     //    entirely, so we only request resolutions marked non-premium in the track
     //    metadata. Calls run in parallel per track to keep latency low.
+    //
+    //    NOTE: existIndividualVideo=false does NOT mean no per-language URL exists.
+    //    The API returns separate URLs per languageId regardless of that flag —
+    //    it just indicates whether a separately encoded file exists vs. a language
+    //    filter applied to the shared HLS stream. We attempt every track.
     for (const track of tracks) {
-      if (!track.existIndividualVideo || !track.languageId) continue;
+      if (!track.languageId) continue;
       const langLabel = `[${track.languageName ?? track.abbreviate ?? "Unknown"}]`;
 
       // Build the ordered list of non-premium resolutions for this track (highest first).
@@ -521,8 +526,10 @@ export async function getCastleTvStreams(
         .map((v) => v.resolution as number)
         .sort((a, b) => b - a);
 
-      // Fall back to [720p] if the track has no resolution metadata at all.
-      const resolutionsToTry = nonPremiumResolutions.length > 0 ? nonPremiumResolutions : [2];
+      // Fall back to all standard resolutions when the track has no metadata —
+      // this covers tracks where existIndividualVideo=false (no per-track video
+      // list), so we probe all three tiers and let failures be caught silently.
+      const resolutionsToTry = nonPremiumResolutions.length > 0 ? nonPremiumResolutions : [3, 2, 1];
 
       logger.debug({ langLabel, resolutionsToTry }, "CastleTV: fetching per-language resolutions");
 
