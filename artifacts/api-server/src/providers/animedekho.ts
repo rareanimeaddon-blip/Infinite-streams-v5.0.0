@@ -627,16 +627,10 @@ export async function getNeoCdnStreams(
       return [];
     }
 
-    // The myth player proxies raw trycloudflare.com URLs through a Cloudflare Worker.
-    // Direct trycloudflare.com URLs return HTTP errors when played in Stremio —
-    // we MUST wrap them through the same worker the player uses.
-    // Worker URL is dynamic (changes with player updates), so parse it fresh each time.
-    const workerUrl = mythHtml.match(/const\s+worker\s*=\s*["']([^"']+)["']/)?.[1] ?? "";
-    if (workerUrl) {
-      logger.info({ mythUrl, workerUrl }, "getNeoCdnStreams: found worker URL");
-    } else {
-      logger.warn({ mythUrl }, "getNeoCdnStreams: no worker URL found in myth player — sources may not play");
-    }
+    // Parse the worker URL embedded in the myth player page.
+    // Worker URL is dynamic (changes with player updates), so we parse it fresh each time.
+    const FALLBACK_WORKER_URL = "https://jolly-salad-69ad.zenhashi.workers.dev/?url=";
+    const parsedWorkerUrl = mythHtml.match(/const\s+worker\s*=\s*["']([^"']+)["']/)?.[1] ?? "";
 
     const fetchEndpoint = `${BASE_URL}/aaa/myth/fetch.php?id=${fetchId}`;
     const fetchRaw = await fetchText(fetchEndpoint, {
@@ -653,18 +647,69 @@ export async function getNeoCdnStreams(
       return [];
     }
 
-    // Wrap every source URL through the worker proxy so Stremio can play it.
-    // Also preserve the original trycloudflare.com URL as `rawUrl` — this lets us
-    // offer a "Direct" fallback stream. Residential IP devices (phones, home routers)
-    // can usually reach trycloudflare URLs directly, whereas Cloudflare Workers sometimes
-    // throw Error 1101 when their script has a bug or the tunnel has expired.
+    // Select which worker to use for wrapping the trycloudflare.com source URLs.
+    //
+    // The myth player MUST proxy raw trycloudflare.com URLs through a Cloudflare Worker —
+    // direct trycloudflare.com URLs return HTTP errors when played in Stremio.
+    //
+    // If the page provides a worker URL, probe it with a real source URL (3 s timeout).
+    // A 2xx–4xx response means the worker is reachable; 5xx / network error means dead.
+    // Fall back to the hardcoded known-good worker when:
+    //   a) the page did not embed a worker URL, or
+    //   b) the page worker is present but returns an error / times out.
+    let activeWorkerUrl: string;
+    let workerSource: "page" | "fallback";
+
+    if (!parsedWorkerUrl) {
+      activeWorkerUrl = FALLBACK_WORKER_URL;
+      workerSource = "fallback";
+      logger.warn({ mythUrl, fallback: FALLBACK_WORKER_URL }, "getNeoCdnStreams: no worker URL in myth player — using fallback worker");
+    } else {
+      const firstRawUrl = data.sources[0]?.url ?? "";
+      const pageWorkerAlive = firstRawUrl
+        ? await (async () => {
+            const ctrl = new AbortController();
+            const t = setTimeout(() => ctrl.abort(), 3000);
+            try {
+              const res = await fetch(parsedWorkerUrl + encodeURIComponent(firstRawUrl), {
+                method: "HEAD",
+                signal: ctrl.signal,
+                headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
+              });
+              clearTimeout(t);
+              // Worker alive = any HTTP response < 500 (4xx from target is still a live worker)
+              return res.status < 500;
+            } catch {
+              clearTimeout(t);
+              return false;
+            }
+          })()
+        : false;
+
+      if (pageWorkerAlive) {
+        activeWorkerUrl = parsedWorkerUrl;
+        workerSource = "page";
+        logger.info({ mythUrl, workerUrl: parsedWorkerUrl, selected: "page" }, "getNeoCdnStreams: page worker healthy — using it");
+      } else {
+        activeWorkerUrl = FALLBACK_WORKER_URL;
+        workerSource = "fallback";
+        logger.warn(
+          { mythUrl, deadWorker: parsedWorkerUrl, fallback: FALLBACK_WORKER_URL },
+          "getNeoCdnStreams: page worker dead or unreachable — falling back to known-good worker",
+        );
+      }
+    }
+
+    // Wrap every source URL through the selected worker proxy so Stremio can play it.
+    // Also preserve the original trycloudflare.com URL as `rawUrl` — residential IP
+    // devices (phones, home routers) can often reach trycloudflare URLs directly.
     const sources: NeoCdnSource[] = data.sources.map((s) => ({
       ...s,
       rawUrl: s.url,
-      url: workerUrl ? workerUrl + encodeURIComponent(s.url) : s.url,
+      url: activeWorkerUrl + encodeURIComponent(s.url),
     }));
 
-    logger.info({ mythUrl, count: sources.length, workerUrl: !!workerUrl }, "getNeoCdnStreams: success");
+    logger.info({ mythUrl, count: sources.length, workerSource, activeWorkerUrl }, "getNeoCdnStreams: success");
     return sources;
   } catch (err) {
     logger.warn({ mythUrl, err }, "getNeoCdnStreams error");
