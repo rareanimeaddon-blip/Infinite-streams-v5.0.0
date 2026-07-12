@@ -88,6 +88,25 @@ export interface Subject {
   subjectType: number;
   coverUrl?: string;
   imdbRating?: string;
+  /**
+   * Release year, parsed from the API's `releaseDate` field. MovieBox search
+   * results frequently contain several subjects with the exact same title
+   * (e.g. "Don", "Race", "Vikram", "Animal" all have multiple unrelated films
+   * sharing the name across languages/regions). Without a per-candidate year,
+   * the shared scoring system (`utils/match.ts`) can't tell them apart via its
+   * year signal and effectively picks an arbitrary one among identical-score
+   * ties. This field lets `scoreResults` in stremio.ts populate
+   * `MatchCandidate.year` so the existing year-scoring logic actually
+   * discriminates between same-titled-but-different subjects.
+   */
+  year?: number;
+}
+
+/** Extract a 4-digit year from a `releaseDate` string like "2006-10-20". */
+function parseYear(releaseDate: unknown): number | undefined {
+  if (typeof releaseDate !== "string") return undefined;
+  const m = releaseDate.match(/\b(19|20)\d{2}\b/);
+  return m ? parseInt(m[0], 10) : undefined;
 }
 
 function buildClientInfo(
@@ -269,7 +288,7 @@ function parseSearchResultsV1(data: unknown): Subject[] {
   if (!Array.isArray(d?.items)) return [];
 
   return d.items
-    .map((item) => {
+    .map((item): Subject | null => {
       const subjectId = item["subjectId"] as string | undefined;
       // Strip "[Hindi]", "[Dubbed]" etc. suffixes for cleaner matching
       const rawTitle = item["title"] as string | undefined;
@@ -281,7 +300,8 @@ function parseSearchResultsV1(data: unknown): Subject[] {
         subjectType: (item["subjectType"] as number | undefined) ?? 1,
         coverUrl: (item["cover"] as { url?: string } | undefined)?.url,
         imdbRating: item["imdbRatingValue"] as string | undefined,
-      } satisfies Subject;
+        year: parseYear(item["releaseDate"]),
+      };
     })
     .filter((s): s is Subject => s !== null);
 }
@@ -306,6 +326,7 @@ function parseSearchResultsV2(data: unknown): Subject[] {
         subjectType: (subject["subjectType"] as number | undefined) ?? 1,
         coverUrl: (subject["cover"] as { url?: string } | undefined)?.url,
         imdbRating: subject["imdbRatingValue"] as string | undefined,
+        year: parseYear(subject["releaseDate"]),
       });
     }
   }

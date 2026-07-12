@@ -1679,6 +1679,12 @@ function scoreResults(
   const candidates = results.map((r) => ({
     title: r.title,
     type: (r.subjectType === 2 ? "series" : "movie") as "movie" | "series",
+    // Per-candidate year (parsed from MovieBox's releaseDate) — critical for
+    // disambiguating the many subjects that share an identical generic title
+    // (e.g. "Don", "Race", "Vikram", "Animal") but are entirely different
+    // films. Without this, the shared scorer's year signal is wasted and
+    // same-titled duplicates tie on score, so the wrong one can be picked.
+    year: r.year,
     raw: r,
   }));
   const { ranked } = findBestMatch(
@@ -3220,11 +3226,12 @@ router.get("/debug/moviebox-search", async (req, res) => {
   const q = String(req.query["q"] ?? "");
   const type = String(req.query["type"] ?? "series");
   const page = Number(req.query["page"] ?? 1);
+  const yearParam = req.query["year"] ? Number(req.query["year"]) : undefined;
   if (!q) { res.status(400).json({ error: "Missing q param" }); return; }
   try {
     const results = await searchMovieBox(q, page);
     const targetType = type === "movie" ? 1 : 2;
-    const scored = scoreResults(results as MBSubject[], q, q, targetType, undefined);
+    const scored = scoreResults(results as MBSubject[], q, q, targetType, yearParam);
     res.json({ query: q, type, page, count: results.length, results: scored.slice(0, 20) });
   } catch (err) {
     res.status(500).json({ error: String(err) });

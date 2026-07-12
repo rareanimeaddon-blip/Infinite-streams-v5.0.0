@@ -42,3 +42,24 @@ Keys are in `moviebox-crypto.ts` — the signing implementation was already corr
 - DASH (H.265/HEVC): `sacdn.hakunaymatata.com/dash/...index.mpd` with CloudFront signed cookies
 - MP4 (H.264): `bcdn.hakunaymatata.com/resource/...mp4?sign=...&t=...` or `hcdn3.hakunaymatata.com/...`
 - Both types are valid; MP4 URLs are direct and don't need cookie injection
+
+## Search results routinely contain duplicate titles for different films (fixed 2026-07-12)
+MovieBox search returns many subjects sharing an identical generic title (e.g. "Don", "Race",
+"Vikram", "Animal" — common single-word titles reused across languages/decades/regions). The
+raw API item DOES include a `releaseDate` field, but the old `Subject` parser dropped it, so
+every candidate got the same neutral (0.5) year score from the shared matcher
+(`utils/match.ts`), and same-titled duplicates tied on score — the wrong film (arbitrary API
+order) was routinely picked and its `subjectId`'s streams served under the requested title.
+
+**Fix:** `Subject.year` now parses `releaseDate`, and `scoreResults` in `stremio.ts` passes
+`year: r.year` into the `MatchCandidate`. This lets the existing year-scoring signal actually
+discriminate between identically-titled subjects. Verified end-to-end for Don (2006, tt0461936),
+Vikram (2022, tt9179430), and Animal (2023, tt13751694) — all now return streams for the correct
+film instead of an unrelated same-titled one.
+
+**Why this matters for future provider work:** any provider whose search results carry a
+release-date/year field but whose `MatchCandidate` construction omits `year` is silently
+wasting a real disambiguation signal — this is worth checking whenever "wrong stream for
+right-sounding title" bugs are reported for a specific provider. `NetMirror`'s search API does
+not return a year at all, so this specific fix doesn't apply there (relies on `tmdbTitleToImdbId`
+verification only).
