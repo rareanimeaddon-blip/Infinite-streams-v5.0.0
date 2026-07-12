@@ -1,8 +1,8 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 import axios from "axios";
-import { logger } from "../lib/logger.js";
-import { BASE_PATH } from "../lib/base-path.js";
+import { logger } from "../../lib/logger.js";
+import { BASE_PATH } from "../../lib/base-path.js";
 
 const raProxyRouter = Router();
 

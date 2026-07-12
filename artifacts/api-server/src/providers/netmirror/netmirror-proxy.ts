@@ -7,8 +7,8 @@ import {
   nmFetchWithRetry,
   nmIsHlsPlaylist,
   nmRewriteM3u8,
-} from "../providers/netmirror/netmirror.js";
-import { logger } from "../lib/logger.js";
+} from "./netmirror.js";
+import { logger } from "../../lib/logger.js";
 
 const router = Router();
 

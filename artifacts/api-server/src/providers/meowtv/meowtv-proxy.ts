@@ -1,13 +1,13 @@
 import { Router, type Request, type Response } from "express";
 import { Readable } from "stream";
-import { logger } from "../lib/logger.js";
+import { logger } from "../../lib/logger.js";
 import {
   fetchMeowServerStream,
   imdbToTmdbNumeric,
   makeMeowM3u8ProxyUrl,
   makeMeowBinaryProxyUrl,
-} from "../providers/meowtv/meowtv.js";
-import { BASE_PATH } from "../lib/base-path.js";
+} from "./meowtv.js";
+import { BASE_PATH } from "../../lib/base-path.js";
 
 // ─── PNG-wrapper stripping ────────────────────────────────────────────────────
 // 1shows.app (TikTok CDN) hides MPEG-TS segments inside a fake PNG envelope:

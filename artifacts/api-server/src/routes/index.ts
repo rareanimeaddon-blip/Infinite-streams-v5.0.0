@@ -1,10 +1,10 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health.js";
 import proxyRouter from "./proxy.js";
-import netmirrorProxyRouter from "./netmirror-proxy.js";
-import raProxyRouter from "./rareanime-proxy.js";
-import meowtvProxyRouter from "./meowtv-proxy.js";
-import vidsrcProxyRouter from "./vidsrc-proxy.js";
+import netmirrorProxyRouter from "../providers/netmirror/netmirror-proxy.js";
+import raProxyRouter from "../providers/rareanime/rareanime-proxy.js";
+import meowtvProxyRouter from "../providers/meowtv/meowtv-proxy.js";
+import vidsrcProxyRouter from "../providers/vidsrc/vidsrc-proxy.js";
 import stremioRouter from "./stremio.js";
 import debugRouter from "./debug.js";
 
