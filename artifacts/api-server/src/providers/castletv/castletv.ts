@@ -45,6 +45,7 @@ interface CastleStream {
   name: string;
   title: string;
   url: string;
+  subtitles?: Array<{ url: string; lang: string; id: string }>;
   behaviorHints?: {
     proxyHeaders?: { request?: Record<string, string> };
   };
@@ -286,6 +287,9 @@ interface CastleSubtitle {
   url?: string;
   abbreviate?: string;
   title?: string;
+  languageId?: number | string;
+  isDefault?: boolean;
+  isAI?: number;
 }
 
 interface VideoPayload {
@@ -313,6 +317,19 @@ function buildCastleStreams(
   if (!data.videoUrl && !(data.videos?.length)) return [];
 
   const defaultQual = resolutionLabel(resolution);
+
+  // Map Castle subtitle objects to Stremio's { url, lang, id } format.
+  // Castle returns VTT files. `abbreviate` is the ISO 639-1 code (en, hi…).
+  // Spaces in the filename (e.g. "English (CC).vtt") are percent-encoded so
+  // the URL is valid for any HTTP client.
+  const subtitles: CastleStream["subtitles"] = (data.subtitles ?? [])
+    .filter((s): s is CastleSubtitle & { url: string } => typeof s.url === "string" && s.url.length > 0)
+    .map((s, i) => ({
+      url:  s.url!.replace(/ /g, "%20"),
+      lang: s.abbreviate ?? s.title ?? "Unknown",
+      id:   `castle-${s.languageId ?? s.abbreviate ?? i}`,
+    }));
+
   const streams: CastleStream[] = [];
 
   if (data.videos && data.videos.length > 0) {
@@ -334,6 +351,7 @@ function buildCastleStreams(
         name: `🏰 ${nameTag} | ${qual}`,
         title: `🎬 ${titleLine}\n💎 ${qual} | 💾 ${formatSize(v.size)} | 🏰 Castle`,
         url: videoUrl,
+        ...(subtitles.length ? { subtitles } : {}),
         behaviorHints: {
           proxyHeaders: { request: PLAYBACK_HEADERS },
         },
@@ -350,6 +368,7 @@ function buildCastleStreams(
       name: `🏰 ${nameTag} | ${qual}`,
       title: `🎬 ${titleLine}\n💎 ${qual} | 💾 ${formatSize(data.size)} | 🏰 Castle`,
       url: videoUrl,
+      ...(subtitles.length ? { subtitles } : {}),
       behaviorHints: {
         proxyHeaders: { request: PLAYBACK_HEADERS },
       },
