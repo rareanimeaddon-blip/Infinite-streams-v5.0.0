@@ -73,7 +73,7 @@ import {
   type Stream as MBStream,
   type Subject as MBSubject,
 } from "../providers/moviebox/moviebox-api.js";
-import { encodeParam as mbEncodeParam } from "./proxy.js";
+import { encodeParam as mbEncodeParam } from "../providers/moviebox/moviebox-proxy.js";
 import { buildVidLinkStreamProxyUrl } from "../providers/vidlink/vidlink-proxy.js";
 import { encodeParam as adEncodeParam } from "../providers/animedekho/animedekho-proxy.js";
 import {
