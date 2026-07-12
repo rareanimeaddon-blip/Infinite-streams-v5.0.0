@@ -1,7 +1,7 @@
 import { createDecipheriv } from "crypto";
-import { logger } from "./logger.js";
-import { getEpisodesPerSeason } from "./cinemeta.js";
-import { findBestMatch, type MatchCandidate, type ContentType } from "../utils/match.js";
+import { logger } from "../../lib/logger.js";
+import { getEpisodesPerSeason } from "../../lib/cinemeta.js";
+import { findBestMatch, type MatchCandidate, type ContentType } from "../../utils/match.js";
 
 const MAIN_URL = "https://api3.devcorp.me";
 // 32-byte AES key and 16-byte IV (extracted from the original obfuscated plugin)

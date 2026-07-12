@@ -36,7 +36,7 @@ import { getCinefreakStreams } from "../providers/cinefreak/cinefreak.js";
 import { getMovies4uStreams } from "../providers/movies4u/movies4u.js";
 import { getMeowTvStreams } from "../providers/meowtv/meowtv.js";
 import { getVidsrcStreams } from "../providers/vidsrc/vidsrc.js";
-import { getStreams as moviesDriveGetStreams, type StreamLink as MoviesDriveStreamLink } from "../lib/moviesdrive.js";
+import { getStreams as moviesDriveGetStreams, type StreamLink as MoviesDriveStreamLink } from "../providers/moviesdrive/moviesdrive.js";
 import { getStreams as animesaltGetStreams, getStreamsByTitle as animesaltGetStreamsByTitle } from "../providers/animesalt/animesalt.js";
 import { getKartoonsCatalog } from "../providers/kartoons/kartoons.js";
 import { searchKartoonsAddonMatch, getEpisodeId as getKartoonsEpisodeId, getStreamsFromAddon as getKartoonsStreamsFromAddon } from "../lib/kartoons-addon.js";
@@ -72,7 +72,7 @@ import {
   getExtCaptions,
   type Stream as MBStream,
   type Subject as MBSubject,
-} from "../lib/moviebox-api.js";
+} from "../providers/moviebox/moviebox-api.js";
 import { encodeParam as mbEncodeParam } from "./proxy.js";
 import { buildVidLinkStreamProxyUrl } from "../providers/vidlink/vidlink-proxy.js";
 import { encodeParam as adEncodeParam } from "../providers/animedekho/animedekho-proxy.js";
@@ -83,7 +83,7 @@ import {
 import { encodeParam as hmEncodeParam } from "../providers/hindmovies/hindmovies-proxy.js";
 import { encodeParam as m4uEncodeParam } from "../providers/movies4u/movies4u-proxy.js";
 import { encodeParam as ktEncodeParam } from "../providers/kartoons/kartoons-proxy.js";
-import { getStreams as getOneTouchTvStreams, type StreamSource as OTCStreamSource } from "../lib/onetouchtv.js";
+import { getStreams as getOneTouchTvStreams, type StreamSource as OTCStreamSource } from "../providers/onetouchtv/onetouchtv.js";
 import { fetchVidLinkStream, ensureVidLinkReady, type VidLinkQuality, type VidLinkResponse } from "../providers/vidlink/vidlink.js";
 import { searchSubtitles } from "../lib/opensubtitles.js";
 import { BASE_PATH } from "../lib/base-path.js";

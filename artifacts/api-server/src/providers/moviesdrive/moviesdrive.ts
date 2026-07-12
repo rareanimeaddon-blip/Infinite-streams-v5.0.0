@@ -32,7 +32,7 @@
  *  intermediate redirects.
  */
 
-import { findBestMatch, type MatchCandidate } from "../utils/match.js";
+import { findBestMatch, type MatchCandidate } from "../../utils/match.js";
 
 const MAIN_URL = "https://new4.moviesdrives.my";
 const ARCHIVE_DOMAIN = "https://mdrive.lol";

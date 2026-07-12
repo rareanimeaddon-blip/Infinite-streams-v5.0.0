@@ -4,7 +4,7 @@ import {
   generateDeviceId,
   randomBrandModel,
 } from "./moviebox-crypto.js";
-import { logger } from "./logger.js";
+import { logger } from "../../lib/logger.js";
 
 // ── Host pool (api6sg.aoneroom.com is geo-blocked from Replit) ────────────────
 const HOST_POOL = [
