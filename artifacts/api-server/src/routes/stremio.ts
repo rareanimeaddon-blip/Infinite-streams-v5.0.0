@@ -73,7 +73,9 @@ import {
   type Stream as MBStream,
   type Subject as MBSubject,
 } from "../lib/moviebox-api.js";
-import { encodeParam as mbEncodeParam, buildVidLinkStreamProxyUrl } from "./proxy.js";
+import { encodeParam as mbEncodeParam } from "./proxy.js";
+import { buildVidLinkStreamProxyUrl } from "../providers/vidlink/vidlink-proxy.js";
+import { encodeParam as adEncodeParam } from "../providers/animedekho/animedekho-proxy.js";
 import {
   encodeParam as asEncodeParam,
   prewarmAsRelay as asPrewarmAsRelay,
