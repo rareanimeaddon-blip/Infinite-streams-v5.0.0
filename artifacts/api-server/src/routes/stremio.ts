@@ -84,7 +84,7 @@ import { encodeParam as hmEncodeParam } from "../providers/hindmovies/hindmovies
 import { encodeParam as m4uEncodeParam } from "../providers/movies4u/movies4u-proxy.js";
 import { encodeParam as ktEncodeParam } from "../providers/kartoons/kartoons-proxy.js";
 import { getStreams as getOneTouchTvStreams, type StreamSource as OTCStreamSource } from "../lib/onetouchtv.js";
-import { fetchVidLinkStream, ensureVidLinkReady, type VidLinkQuality, type VidLinkResponse } from "../lib/vidlink.js";
+import { fetchVidLinkStream, ensureVidLinkReady, type VidLinkQuality, type VidLinkResponse } from "../providers/vidlink/vidlink.js";
 import { searchSubtitles } from "../lib/opensubtitles.js";
 import { BASE_PATH } from "../lib/base-path.js";
 import { logger } from "../lib/logger.js";

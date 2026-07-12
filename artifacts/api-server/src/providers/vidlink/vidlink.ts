@@ -1,7 +1,7 @@
 import sodium from "libsodium-wrappers";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { logger } from "./logger.js";
+import { logger } from "../../lib/logger.js";
 
 // WASM files live in artifacts/api-server/wasm/ – the server's CWD when started
 // by the pnpm script is the package directory.
