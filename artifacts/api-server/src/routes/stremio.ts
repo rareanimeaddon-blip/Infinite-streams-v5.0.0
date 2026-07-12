@@ -73,7 +73,14 @@ import {
   type Stream as MBStream,
   type Subject as MBSubject,
 } from "../lib/moviebox-api.js";
-import { encodeParam, prewarmAsRelay, buildVidLinkStreamProxyUrl } from "./proxy.js";
+import { encodeParam as mbEncodeParam, buildVidLinkStreamProxyUrl } from "./proxy.js";
+import {
+  encodeParam as asEncodeParam,
+  prewarmAsRelay as asPrewarmAsRelay,
+} from "../providers/animesalt/animesalt-proxy.js";
+import { encodeParam as hmEncodeParam } from "../providers/hindmovies/hindmovies-proxy.js";
+import { encodeParam as m4uEncodeParam } from "../providers/movies4u/movies4u-proxy.js";
+import { encodeParam as ktEncodeParam } from "../providers/kartoons/kartoons-proxy.js";
 import { getStreams as getOneTouchTvStreams, type StreamSource as OTCStreamSource } from "../lib/onetouchtv.js";
 import { fetchVidLinkStream, ensureVidLinkReady, type VidLinkQuality, type VidLinkResponse } from "../lib/vidlink.js";
 import { searchSubtitles } from "../lib/opensubtitles.js";
@@ -895,10 +902,10 @@ async function getAnimeSaltStreams(
       // server IP.  It then immediately fetches and proxies the m3u8 from the
       // same IP, bypassing the timing window where the old approach could fail.
       if (s.hash && s.playerCdn) {
-        const relayUrl = `${base}/as-relay?hash=${encodeURIComponent(s.hash)}&player=${encodeParam(s.playerCdn)}`;
+        const relayUrl = `${base}/as-relay?hash=${encodeURIComponent(s.hash)}&player=${asEncodeParam(s.playerCdn)}`;
         // Kick off relay computation in the background immediately so the cache
         // is hot by the time Stremio actually calls the relay URL (~1-3 s later).
-        prewarmAsRelay(s.hash, s.playerCdn, base);
+        asPrewarmAsRelay(s.hash, s.playerCdn, base);
         return { name: s.name, title: s.title, url: relayUrl, subtitles: s.subtitles, behaviorHints: { notWebReady: true } };
       }
 
@@ -1132,7 +1139,7 @@ function proxyHindMoviezStreams(
         behaviorHints: { notWebReady: true },
       };
     }
-    const proxiedUrl = `${base}/hmproxy?u=${encodeParam(s.url)}`;
+    const proxiedUrl = `${base}/hmproxy?u=${hmEncodeParam(s.url)}`;
     return {
       name: s.name,
       title: s.title,
@@ -1169,7 +1176,7 @@ function wrapM4uGdflixStreams(streams: unknown[], req: Request): unknown[] {
       // and serves whatever the intermediate URL returns — typically HTML).
       return {
         ...s,
-        url: `${apiBase(req)}/proxy?u=${encodeParam(s.url)}`,
+        url: `${apiBase(req)}/proxy?u=${m4uEncodeParam(s.url)}`,
         behaviorHints: undefined,
       };
     } catch { return s; }
@@ -1577,7 +1584,7 @@ function mbStreamToStremio(
   // Final label: if it still contains "dub" (e.g. a custom label) replace it with "Audio"
   const langLabel = normalizedLang.replace(/\bdub\b/i, "Audio").trim();
   const base = apiBase(req);
-  const params = `u=${encodeParam(stream.url)}` + (stream.signCookie ? `&c=${encodeParam(stream.signCookie)}` : "");
+  const params = `u=${mbEncodeParam(stream.url)}` + (stream.signCookie ? `&c=${mbEncodeParam(stream.signCookie)}` : "");
 
   const proxyUrl = sType === "dash"
     ? `${base}/stream.m3u8?${params}`
@@ -2509,8 +2516,8 @@ router.get("/stream/:type/:id.json", async (req, res) => {
           return saltStreams.map((s) => {
             if (!saltBase) return { name: s.name, title: s.title, url: s.url, subtitles: s.subtitles, behaviorHints: { notWebReady: true } };
             if (s.hash && s.playerCdn) {
-              const relayUrl = `${saltBase}/as-relay?hash=${encodeURIComponent(s.hash)}&player=${encodeParam(s.playerCdn)}`;
-              prewarmAsRelay(s.hash, s.playerCdn, saltBase);
+              const relayUrl = `${saltBase}/as-relay?hash=${encodeURIComponent(s.hash)}&player=${asEncodeParam(s.playerCdn)}`;
+              asPrewarmAsRelay(s.hash, s.playerCdn, saltBase);
               return { name: s.name, title: s.title, url: relayUrl, subtitles: s.subtitles, behaviorHints: { notWebReady: true } };
             }
             const proxiedUrl = `${saltBase}/m3u8?url=${encodeURIComponent(s.url)}&referer=${encodeURIComponent(s.referer)}&origin=${encodeURIComponent(s.origin)}`;
@@ -2932,7 +2939,7 @@ async function getKartoonsStreams(
     return streams.map((s) => ({
       name: `🎌 Kartoons`,
       title: s.title ?? s.name,
-      url: `${proxyBase}/hmproxy?u=${encodeParam(s.url)}`,
+      url: `${proxyBase}/hmproxy?u=${ktEncodeParam(s.url)}`,
       subtitles: s.subtitles,
       behaviorHints: { ...(s.behaviorHints ?? {}) },
       _resolvedTitle: match.title,
