@@ -7,3 +7,4 @@
 - [hubcloud.cx resolver](hubcloud-cx-resolver.md) — match its download button by id (`id="fsl"`), not hostname; the backend CDN hostname behind it changes over time.
 - [AnimeDekho NeoCDN worker URL](neocdn-worker-url.md) — page-embedded worker URL is authoritative; direct trycloudflare URLs never work.
 - [OneTouchTV flaky upstream & provider-test port](onetouchtv-flaky-upstream.md) — retry transient 404s/timeouts; provider-test needs `PORT=8080` on Replit or it falsely reports all-zero.
+- [Provider folder isolation convention](provider-folder-isolation.md) — providers/+extractors/ fully isolated per provider by user decision; lib/utils/stremio.ts stay shared/excluded — scope boundaries and known gaps.

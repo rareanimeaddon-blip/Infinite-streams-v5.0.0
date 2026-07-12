@@ -18,11 +18,12 @@ A Stremio addon (v8.8.0) that aggregates streams from 22 providers into a single
 
 ## Where things live
 
-- `artifacts/api-server/src/providers/` — one file per stream provider (hdghartv.ts, vaplayer.ts added)
+- `artifacts/api-server/src/providers/<name>/` — each provider has its own folder (e.g. `providers/netmirror/netmirror.ts`). Any extractor/helper file used by only that provider lives inside its folder too (e.g. `providers/animedekho/extractors/*` — the 18-file embed-host extractor suite is private to AnimeDekho; `providers/hdhub4u/hdhub4u-base.ts` and `providers/fourkdhub/hdhub4u-base.ts` are separate copies, one per provider, so a change to one never affects the other).
+- `artifacts/api-server/src/lib/` and `artifacts/api-server/src/utils/` — genuinely shared infrastructure (logger, the universal matcher, fetch helpers, TMDB verification, etc.) used across many providers. These stay shared by design — do not duplicate them into provider folders.
+- `artifacts/api-server/src/extractors/` — legacy top-level extractor files (hubcloud.ts, hblinks.ts, hubcdn.ts, hubdrive.ts, pixeldrain.ts, streamtape.ts, stream-utils.ts, index.ts, vidstack.ts) are **dead code**, superseded by HDHub4U's own inline `resolveHubCloud()` logic. Only `extractors/types.ts` (the shared `Stream` type) is still used, by `routes/stremio.ts`. Safe to delete the rest in a follow-up cleanup.
 - `artifacts/api-server/src/lib/kartoons-config.ts` — Kartoons config loader (token, base URL)
 - `artifacts/api-server/src/lib/kartoons-addon.ts` — Kartoons Stremio addon API client (search, episodes, streams)
-- `artifacts/api-server/src/routes/stremio.ts` — main aggregation logic, per-provider stream functions
-- `artifacts/api-server/src/providers/hdhub4u-base.ts` — `cleanTitle()`, Typesense search
+- `artifacts/api-server/src/routes/stremio.ts` — main aggregation logic; imports one entry function per provider from its folder, then fans out with `Promise.allSettled`. Several providers (AnimeDekho, MovieBox, RareAnime, Kartoons, DooFlix, VidLink, HDGharTV/VaPlayer, MoviesDrive, HindMoviez, PirateXPlay) still have provider-specific helper logic living inline in this file rather than in their own folder — pulling that out is a larger, separate follow-up, not done as part of the providers/extractors reorg.
 - `artifacts/api-server/src/utils/title-score.ts` — `titleSimilarityScore()` (Jaccard + abbreviation handling)
 - `artifacts/api-server/src/lib/meta-resolver.ts` — IMDB → title via Cinemeta + TMDB
 - `artifacts/api-server/src/manifest.ts` — addon manifest + provider list

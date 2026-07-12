@@ -6,7 +6,7 @@ import {
   imdbToTmdbNumeric,
   makeMeowM3u8ProxyUrl,
   makeMeowBinaryProxyUrl,
-} from "../providers/meowtv.js";
+} from "../providers/meowtv/meowtv.js";
 import { BASE_PATH } from "../lib/base-path.js";
 
 // ─── PNG-wrapper stripping ────────────────────────────────────────────────────

@@ -23,24 +23,24 @@ import {
   type SeasonEntry as RASeasonEntry,
 } from "../providers/rareanime/scraper.js";
 import { extractStreamFromArgon } from "../providers/rareanime/argon-extractor.js";
-import { fetchNetmirrorStreams } from "../providers/netmirror.js";
-import { getStreams as hindmoviezGetStreams, getCatalog as hindmoviezGetCatalog } from "../providers/hindmovies.js";
-import * as hdhub4u from "../providers/hdhub4u.js";
-import * as fourkdhub from "../providers/fourkdhub.js";
-import { getHdghartvMovieStreams, getHdghartvSeriesStreams } from "../providers/hdghartv.js";
-import { getVaPlayerMovieStreams, getVaPlayerSeriesStreams } from "../providers/vaplayer.js";
-import { fetchStreamflixStreams } from "../providers/streamflix.js";
-import { getDooflixMovieStreams, getDooflixSeriesStreams, type DooflixStream } from "../providers/dooflix.js";
-import { getCastleTvStreams } from "../providers/castletv.js";
-import { getCinefreakStreams } from "../providers/cinefreak.js";
-import { getMovies4uStreams } from "../providers/movies4u.js";
-import { getMeowTvStreams } from "../providers/meowtv.js";
-import { getVidsrcStreams } from "../providers/vidsrc.js";
+import { fetchNetmirrorStreams } from "../providers/netmirror/netmirror.js";
+import { getStreams as hindmoviezGetStreams, getCatalog as hindmoviezGetCatalog } from "../providers/hindmovies/hindmovies.js";
+import * as hdhub4u from "../providers/hdhub4u/hdhub4u.js";
+import * as fourkdhub from "../providers/fourkdhub/fourkdhub.js";
+import { getHdghartvMovieStreams, getHdghartvSeriesStreams } from "../providers/hdghartv/hdghartv.js";
+import { getVaPlayerMovieStreams, getVaPlayerSeriesStreams } from "../providers/vaplayer/vaplayer.js";
+import { fetchStreamflixStreams } from "../providers/streamflix/streamflix.js";
+import { getDooflixMovieStreams, getDooflixSeriesStreams, type DooflixStream } from "../providers/dooflix/dooflix.js";
+import { getCastleTvStreams } from "../providers/castletv/castletv.js";
+import { getCinefreakStreams } from "../providers/cinefreak/cinefreak.js";
+import { getMovies4uStreams } from "../providers/movies4u/movies4u.js";
+import { getMeowTvStreams } from "../providers/meowtv/meowtv.js";
+import { getVidsrcStreams } from "../providers/vidsrc/vidsrc.js";
 import { getStreams as moviesDriveGetStreams, type StreamLink as MoviesDriveStreamLink } from "../lib/moviesdrive.js";
-import { getStreams as animesaltGetStreams, getStreamsByTitle as animesaltGetStreamsByTitle } from "../providers/animesalt.js";
-import { getKartoonsCatalog } from "../providers/kartoons.js";
+import { getStreams as animesaltGetStreams, getStreamsByTitle as animesaltGetStreamsByTitle } from "../providers/animesalt/animesalt.js";
+import { getKartoonsCatalog } from "../providers/kartoons/kartoons.js";
 import { searchKartoonsAddonMatch, getEpisodeId as getKartoonsEpisodeId, getStreamsFromAddon as getKartoonsStreamsFromAddon } from "../lib/kartoons-addon.js";
-import { getAnimeCatalog } from "../providers/animesalt-catalog.js";
+import { getAnimeCatalog } from "../providers/animesalt/animesalt-catalog.js";
 import {
   catalog as animeDekhoGetCatalog,
   search as animeDekhoSearch,
@@ -53,9 +53,9 @@ import {
   parsePageServers,
   type NeoCdnSource,
   decodeId as animeDekhoDecodeId,
-} from "../providers/animedekho.js";
-import { resolveExtractor, type Stream as ADStream } from "../extractors/animedekho/index.js";
-import { fetchStreamsByTitle as pxpFetchStreamsByTitle, type StreamResult as PxpStreamResult } from "../providers/piratexplay.js";
+} from "../providers/animedekho/animedekho.js";
+import { resolveExtractor, type Stream as ADStream } from "../providers/animedekho/extractors/index.js";
+import { fetchStreamsByTitle as pxpFetchStreamsByTitle, type StreamResult as PxpStreamResult } from "../providers/piratexplay/piratexplay.js";
 import { titleSimilarityScore } from "../utils/title-score.js";
 import { findBestMatch, findBestMatchWithRetry, buildRetryTitleVariants, type MatchCandidate } from "../utils/match.js";
 import { tmdbTitleToImdbId } from "../lib/tmdb-verify.js";
@@ -1118,7 +1118,7 @@ function adStreamToStremio(s: ADStream, req?: Request): Record<string, unknown> 
 // We also proxy any other HindMoviez direct-download URLs to ensure
 // consistent range-request behaviour regardless of file size.
 function proxyHindMoviezStreams(
-  streams: import("../providers/hindmovies.js").StremioStream[],
+  streams: import("../providers/hindmovies/hindmovies.js").StremioStream[],
   req: Request,
 ): Record<string, unknown>[] {
   const base = apiBase(req);
