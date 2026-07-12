@@ -1093,7 +1093,7 @@ function adStreamToStremio(s: ADStream, req?: Request): Record<string, unknown> 
     // any other IP is rejected 403.  The proxy also correctly handles
     // AES-128 key requests via /api/seg with the right Referer/Origin.
     if (base) {
-      const proxiedUrl = `${base}/m3u8?url=${encodeURIComponent(s.url)}&referer=${encodeURIComponent(referer)}&origin=${encodeURIComponent(origin)}`;
+      const proxiedUrl = `${base}/adm3u8?url=${encodeURIComponent(s.url)}&referer=${encodeURIComponent(referer)}&origin=${encodeURIComponent(origin)}`;
       return {
         name: s.name,
         title: s.title,
@@ -2941,7 +2941,7 @@ async function getKartoonsStreams(
     return streams.map((s) => ({
       name: `🎌 Kartoons`,
       title: s.title ?? s.name,
-      url: `${proxyBase}/hmproxy?u=${ktEncodeParam(s.url)}`,
+      url: `${proxyBase}/karproxy?u=${ktEncodeParam(s.url)}`,
       subtitles: s.subtitles,
       behaviorHints: { ...(s.behaviorHints ?? {}) },
       _resolvedTitle: match.title,
