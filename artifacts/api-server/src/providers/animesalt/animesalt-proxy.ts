@@ -11,6 +11,10 @@ export function encodeParam(s: string): string {
   return Buffer.from(s, "utf8").toString("base64url");
 }
 
+function decodeParam(s: string): string {
+  return Buffer.from(s, "base64url").toString("utf8");
+}
+
 
 const AS_CDN_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Safari/537.36";
