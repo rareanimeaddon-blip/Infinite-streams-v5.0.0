@@ -1,8 +1,8 @@
 import { Router, type Request, type Response } from "express";
 import { Readable } from "stream";
 import { logger } from "../../lib/logger.js";
-import { resolveVidsrcLink } from "../../lib/vidsrc-link-store.js";
-import { createVidsrcLink } from "../../lib/vidsrc-link-store.js";
+import { resolveVidsrcLink } from "./vidsrc-link-store.js";
+import { createVidsrcLink } from "./vidsrc-link-store.js";
 import { BASE_PATH } from "../../lib/base-path.js";
 
 const router = Router();

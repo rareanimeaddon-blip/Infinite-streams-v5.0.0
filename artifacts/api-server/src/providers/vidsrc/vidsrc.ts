@@ -1,7 +1,7 @@
 import * as cheerio from "cheerio";
 import { Parser } from "m3u8-parser";
 import { logger } from "../../lib/logger.js";
-import { createVidsrcLink } from "../../lib/vidsrc-link-store.js";
+import { createVidsrcLink } from "./vidsrc-link-store.js";
 
 const SOURCE_URL = "https://vidsrc-embed.ru/embed";
 

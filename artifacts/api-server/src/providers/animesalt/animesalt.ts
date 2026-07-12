@@ -1,5 +1,5 @@
 import { logger } from "../../lib/logger.js";
-import { setPlayerApiResult } from "../../lib/animesalt-player-cache.js";
+import { setPlayerApiResult } from "./animesalt-player-cache.js";
 import { findBestMatch, type MatchCandidate } from "../../utils/match.js";
 
 const TMDB_KEY = "d80ba92bc7cefe3359668d30d06f3305";

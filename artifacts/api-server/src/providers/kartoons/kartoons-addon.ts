@@ -1,7 +1,7 @@
 import axios from "axios";
 import { getAddonConfig } from "./kartoons-config.js";
-import { logger } from "./logger.js";
-import { findBestMatch, type MatchCandidate } from "../utils/match.js";
+import { logger } from "../../lib/logger.js";
+import { findBestMatch, type MatchCandidate } from "../../utils/match.js";
 
 // Simple in-process cache
 const _cache = new Map<string, { data: unknown; expiresAt: number }>();

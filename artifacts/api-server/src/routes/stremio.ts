@@ -39,7 +39,7 @@ import { getVidsrcStreams } from "../providers/vidsrc/vidsrc.js";
 import { getStreams as moviesDriveGetStreams, type StreamLink as MoviesDriveStreamLink } from "../providers/moviesdrive/moviesdrive.js";
 import { getStreams as animesaltGetStreams, getStreamsByTitle as animesaltGetStreamsByTitle } from "../providers/animesalt/animesalt.js";
 import { getKartoonsCatalog } from "../providers/kartoons/kartoons.js";
-import { searchKartoonsAddonMatch, getEpisodeId as getKartoonsEpisodeId, getStreamsFromAddon as getKartoonsStreamsFromAddon } from "../lib/kartoons-addon.js";
+import { searchKartoonsAddonMatch, getEpisodeId as getKartoonsEpisodeId, getStreamsFromAddon as getKartoonsStreamsFromAddon } from "../providers/kartoons/kartoons-addon.js";
 import { getAnimeCatalog } from "../providers/animesalt/animesalt-catalog.js";
 import {
   catalog as animeDekhoGetCatalog,

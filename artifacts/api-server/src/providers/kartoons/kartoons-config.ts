@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, existsSync } from "fs";
 import { fileURLToPath } from "url";
 import path from "path";
-import { logger } from "./logger.js";
+import { logger } from "../../lib/logger.js";
 
 const CONFIG_PATH = path.join(
   path.dirname(fileURLToPath(import.meta.url)),

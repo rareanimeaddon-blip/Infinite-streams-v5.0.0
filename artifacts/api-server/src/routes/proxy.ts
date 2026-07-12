@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { logger } from "../lib/logger.js";
-import { getPlayerApiResult } from "../lib/animesalt-player-cache.js";
+import { getPlayerApiResult } from "../providers/animesalt/animesalt-player-cache.js";
 import { logDebug } from "../lib/debug-log.js";
 import { BASE_PATH } from "../lib/base-path.js";
 import { proxyFetch } from "../lib/proxy-fetch.js";
