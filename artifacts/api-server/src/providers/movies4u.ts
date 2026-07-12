@@ -333,22 +333,53 @@ function isGdflixFamily(url: string): boolean {
 }
 
 /**
- * Fetch a gdlink/gdflix intermediate page, extract the busycdn CDN URL, then
- * follow busycdn's own redirect to obtain the FINAL playable CDN file.
+ * Follow the cdn.foxcloud.rest two-hop chain to a Google Video direct URL.
+ * Hop 1: cdn.foxcloud.rest/?url=... → HTML page with JS redirect to /upload?url=...
+ * Hop 2: cdn.foxcloud.rest/upload?url=... → HTML page with Google Video download link
+ */
+async function followFoxcloudChain(foxUrl: string, referer: string): Promise<string | null> {
+  try {
+    const res1 = await fetch(foxUrl, {
+      headers: { ...BROWSER_HEADERS, Referer: referer },
+      signal: AbortSignal.timeout(10_000),
+      redirect: "follow",
+    });
+    if (!res1.ok) return null;
+    const html1 = await res1.text();
+    const uploadMatch = html1.match(/window\.location\.href\s*=\s*["']([^"']*\/upload\?url=[^"']*)["']/);
+    if (!uploadMatch?.[1]) return null;
+    const uploadPath = uploadMatch[1];
+    const uploadUrl = uploadPath.startsWith("http")
+      ? uploadPath
+      : `https://cdn.foxcloud.rest${uploadPath.startsWith("/") ? "" : "/"}${uploadPath}`;
+    const res2 = await fetch(uploadUrl, {
+      headers: { ...BROWSER_HEADERS, Referer: foxUrl },
+      signal: AbortSignal.timeout(10_000),
+      redirect: "follow",
+    });
+    if (!res2.ok) return null;
+    const html2 = await res2.text();
+    const gvMatch = html2.match(/href="(https?:\/\/video-downloads\.googleusercontent\.com\/[^"]+)"/i);
+    if (gvMatch?.[1]) return gvMatch[1];
+    const directMatch = html2.match(/href="(https?:\/\/[^"]+\.(?:mp4|mkv|avi)[^"]*)"/i);
+    return directMatch?.[1]?.replace(/&amp;/g, "&") ?? null;
+  } catch { return null; }
+}
+
+/**
+ * Fetch a gdlink/gdflix intermediate page and pre-resolve it to a directly
+ * playable CDN URL at scrape time so Stremio can start playing immediately.
  *
- * busycdn.xyz does NOT serve the video directly — it 302s to an interstitial
- * "Download Link Generated / Please Wait" page at fastcdn-dl.pages.dev
- * (client-rendered, requires JS to auto-continue), which is why handing the
- * raw busycdn URL to a player just shows a stuck loading page instead of
- * playing. The real target is exposed as the `url` query param on that
- * interstitial's address — we read it straight off the redirect location
- * without needing to execute any JS, then verify it with a live HEAD request
- * before trusting it.
+ * Resolution priority (highest → lowest reliability):
+ *   1. pixeldrain.com/u/{ID}  — direct streaming API, confirmed range-request support
+ *   2. cdn.foxcloud.rest chain — 2-hop follow to Google Video URL
+ *   3. instant.busycdn.xyz    — follow redirect chain to fastcdn-dl ?url= param
+ *
+ * Returns null on any failure so the caller keeps the raw gdflix URL and the
+ * proxy resolves it lazily at play time.  Never returns a dead intermediate URL
+ * (raw busycdn) — that causes Stremio to hang indefinitely.
  *
  * Only fetches URLs on the GDFLIX_ALLOWED_HOSTS allowlist (SSRF guard).
- * redirect:"follow" is used here — this is a scraper-side fetch (not a user-
- * controlled proxy hop) and the allowed-host check ensures the initial URL is
- * trusted; redirect targets are gdflix's own CDN chain, not user-supplied.
  */
 async function preResolveToBusycdnUrl(url: string): Promise<string | null> {
   // Hard allowlist check before any network activity
@@ -361,12 +392,25 @@ async function preResolveToBusycdnUrl(url: string): Promise<string | null> {
     });
     if (!res.ok) return null;
     const html = await res.text();
-    const m = html.match(/href="(https:\/\/instant\.busycdn\.xyz\/[^"]{20,})"/);
-    const busyUrl = m?.[1];
+
+    // Priority 1: Pixeldrain — direct streaming API, no extra hops.
+    const pdMatch = html.match(/(?:href|src)="https?:\/\/pixeldrain\.(?:com|dev)\/u\/([A-Za-z0-9]+)(?:\?[^"]*)?"/);
+    if (pdMatch?.[1]) {
+      return `https://pixeldrain.com/api/file/${pdMatch[1]}`;
+    }
+
+    // Priority 2: foxcloud.rest → Google Video URL via 2-hop follow.
+    const foxMatch = html.match(/href="(https?:\/\/cdn\.foxcloud\.rest\/\?url=[^"]*)"/);
+    if (foxMatch?.[1]) {
+      const foxFinal = await followFoxcloudChain(foxMatch[1].replace(/&amp;/g, "&"), url);
+      if (foxFinal) return foxFinal;
+    }
+
+    // Priority 3: busycdn — follow redirect to fastcdn-dl.pages.dev?url=FINAL.
+    const busyMatch = html.match(/href="(https:\/\/instant\.busycdn\.xyz\/[^"]{20,})"/);
+    const busyUrl = busyMatch?.[1];
     if (!busyUrl) return null;
 
-    // Follow busycdn's redirect to the fastcdn-dl.pages.dev interstitial and
-    // pull the real CDN file straight out of its `url` query param.
     const busyRes = await fetch(busyUrl, {
       headers: { ...BROWSER_HEADERS, Referer: url },
       signal: AbortSignal.timeout(10_000),
@@ -375,7 +419,9 @@ async function preResolveToBusycdnUrl(url: string): Promise<string | null> {
     const finalUrl = new URL(busyRes.url);
     busyRes.body?.cancel();
     const target = finalUrl.searchParams.get("url");
-    if (!target) return busyUrl; // interstitial layout changed — fall back to busycdn link
+    // If follow didn't land on a fastcdn-dl URL with ?url=, busycdn is broken.
+    // Return null — do NOT return the raw busycdn URL; it hangs players.
+    if (!target) return null;
 
     // Verify the extracted CDN link is actually alive before trusting it.
     const headRes = await fetch(target, {
@@ -384,9 +430,7 @@ async function preResolveToBusycdnUrl(url: string): Promise<string | null> {
       signal: AbortSignal.timeout(8_000),
       redirect: "follow",
     }).catch(() => null);
-    if (headRes?.ok) return headRes.url || target;
-
-    return busyUrl; // verification failed — fall back to busycdn link
+    return headRes?.ok ? (headRes.url || target) : null;
   } catch {
     return null; // network error / timeout — caller falls back to lazy proxy
   }

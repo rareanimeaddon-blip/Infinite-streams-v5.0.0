@@ -521,8 +521,10 @@ async function resolveGdflixChain(gdflixUrl: string): Promise<string | null> {
         logger.info({ final: final.slice(0, 80) }, "GDFlix proxy: resolved via busycdn");
         return final;
       }
-      logger.warn({ busyUrl: busyMatch[1].slice(0, 80) }, "GDFlix proxy: busycdn follow failed — returning busycdn URL");
-      return busyMatch[1];
+      // BusyCDN is broken (returns error JSON). Do NOT return the raw busycdn
+      // URL — it causes the player to hang indefinitely. Return null so the
+      // caller returns a clean 502 instead.
+      logger.warn({ busyUrl: busyMatch[1].slice(0, 80) }, "GDFlix proxy: busycdn follow failed — returning null");
     }
 
     // Priority 4: any direct .mp4/.mkv link on the page
@@ -1491,11 +1493,16 @@ router.all("/proxy", async (req, res) => {
     logger.info({ url: targetUrl.slice(0, 80) }, "Proxy: following BusyCDN intermediate URL at play time");
     const resolved = await followBusyCdnToFinalUrl(targetUrl, "https://gdflix.dev/");
     if (resolved) {
-      logger.info({ resolved: resolved.slice(0, 80) }, "Proxy: BusyCDN resolved");
-      targetUrl = resolved;
+      logger.info({ resolved: resolved.slice(0, 80) }, "Proxy: BusyCDN resolved — 302 redirect");
+      if (!res.headersSent) res.redirect(302, resolved);
+      return;
     }
-    // If follow fails fall through — pipeUpstream will return an error response
-    // which is better than silently serving an interstitial HTML page.
+    // BusyCDN is broken (returns error JSON / hangs). Do NOT fall through to
+    // pipeUpstream — piping a dead busycdn URL causes the player to hang
+    // indefinitely waiting for bytes that never arrive.
+    logger.warn({ url: targetUrl.slice(0, 80) }, "Proxy: BusyCDN follow failed — returning 502");
+    if (!res.headersSent) res.status(502).json({ error: "BusyCDN: could not resolve to a video URL" });
+    return;
   }
 
   const isMpd = targetUrl.includes(".mpd") || targetUrl.includes("manifest");
