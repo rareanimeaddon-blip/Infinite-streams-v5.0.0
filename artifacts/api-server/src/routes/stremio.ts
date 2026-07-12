@@ -74,7 +74,6 @@ import {
   type Subject as MBSubject,
 } from "../providers/moviebox/moviebox-api.js";
 import { encodeParam as mbEncodeParam } from "../providers/moviebox/moviebox-proxy.js";
-import { buildVidLinkStreamProxyUrl } from "../providers/vidlink/vidlink-proxy.js";
 import { encodeParam as adEncodeParam } from "../providers/animedekho/animedekho-proxy.js";
 import {
   encodeParam as asEncodeParam,
@@ -107,69 +106,56 @@ const VL_QUALITY_ORDER = ["1080", "720", "480", "360"] as const;
 type VLQualityKey = (typeof VL_QUALITY_ORDER)[number];
 const VL_QUALITY_LABELS: Record<string, string> = { "1080": "1080p", "720": "720p", "480": "480p", "360": "360p" };
 
-function filenameFromUrl(cdnUrl: string, label: string): string {
-  try {
-    const pathname = new URL(cdnUrl).pathname;
-    const base = pathname.split("/").pop() ?? "stream.mp4";
-    return base.endsWith(".mp4") ? base : `${label.replace(/\s+/g, "_")}.mp4`;
-  } catch { return `${label.replace(/\s+/g, "_")}.mp4`; }
-}
-
-// VidLink's CDN (currently vodvidl.site, previously hakunaymatata.com — the exact
-// host changes without notice) requires the request that fetches the video bytes
-// to carry `Referer: https://vidlink.pro/`. Handing the client the raw CDN URL
-// (even with `behaviorHints.proxyHeaders`) still exposes the *client's own IP* to
-// the CDN's WAF, which intermittently hard-blocks certain client networks (seen:
-// Indian mobile carrier IPs blocked on 480p/360p with a Cloudflare "Sorry, you have
-// been blocked" page, while 1080p / other titles worked) — causing endless
-// loading in the player. A same-origin 307 redirect doesn't fix this either, since
-// the client still ends up fetching the CDN directly after the redirect.
+// VidLink CDN auth mechanism: the CDN (currently vodvidl.site) checks the HTTP
+// Referer header — "https://vidlink.pro/" — but does NOT block by client IP.
+// Verified by live test: bare fetch → 403, same request + Referer → 200.
 //
-// Fix: stream the video bytes through our own server (`/vidlink-stream`, see
-// routes/proxy.ts) instead of exposing the CDN URL to the client at all. The CDN
-// then only ever sees our server's IP (not subject to that per-client WAF block),
-// and we attach Referer/Origin ourselves server-side — no dependency on the CDN
-// host name, so it also survives future host rotations without allowlists.
-// See .agents/memory/vidlink-cdn-auth.md.
-function buildVidLinkStreams(qualities: Record<string, VidLinkQuality>, base: string): Array<Record<string, unknown>> {
+// Strategy: return CDN URLs directly to Stremio with behaviorHints.proxyHeaders
+// so Stremio's player passes the Referer when fetching.  No bytes go through our
+// server, which was the cause of slow startup and mid-playback rebuffering.
+//
+// DASH stream (MPD) is prioritised as stream #1: it is adaptive-bitrate so the
+// player auto-selects quality and never stalls waiting for a huge MP4 header.
+// Fixed-quality MP4 streams are offered as fallbacks for players without DASH.
+const VL_PROXY_HEADERS = { request: { Referer: "https://vidlink.pro/", Origin: "https://vidlink.pro" } };
+
+function buildVidLinkStreams(
+  qualities: Record<string, VidLinkQuality>,
+  _base: string,
+  alternates?: Record<string, { type: string; playlist: string }>,
+): Array<Record<string, unknown>> {
   const streams: Array<Record<string, unknown>> = [];
-  const pushStream = (label: string, quality: VidLinkQuality) => {
+
+  // 1. DASH adaptive stream — best option: no fixed bitrate, instant start,
+  //    smooth seeking. Stremio desktop (mpv) and Android both handle MPEG-DASH.
+  const dash = alternates?.["dash"];
+  if (dash?.playlist) {
+    streams.push({
+      name: "🔗 VidLink",
+      description: "Adaptive (DASH)",
+      url: dash.playlist,
+      behaviorHints: { notWebReady: false, proxyHeaders: VL_PROXY_HEADERS },
+    });
+  }
+
+  // 2. Fixed-quality MP4 streams as fallbacks, highest quality first.
+  const pushMp4 = (label: string, quality: VidLinkQuality) => {
     if (!quality?.url) return;
-    const filename = filenameFromUrl(quality.url, label);
-    const proxyUrl = buildVidLinkStreamProxyUrl(base, quality.url, filename);
-    // If SESSION_SECRET is not configured, proxyUrl is null — fall back to handing
-    // the CDN URL directly to the player with proxyHeaders (the pre-proxy approach).
-    // This means VidLink always works regardless of whether SESSION_SECRET is set.
-    // The server-side proxy is preferred when available (shields client IP from WAF)
-    // but the direct approach works fine for most deployments, especially home servers.
     const codec = quality.codecName ? ` • ${quality.codecName.toUpperCase()}` : "";
-    if (proxyUrl) {
-      streams.push({
-        name: "🔗 VidLink",
-        description: `${label}${codec}`,
-        url: proxyUrl,
-        behaviorHints: { notWebReady: false, filename },
-      });
-    } else {
-      streams.push({
-        name: "🔗 VidLink",
-        description: `${label}${codec}`,
-        url: quality.url,
-        behaviorHints: {
-          notWebReady: true,
-          filename,
-          proxyHeaders: { request: { Referer: "https://vidlink.pro/", Origin: "https://vidlink.pro" } },
-        },
-      });
-    }
+    streams.push({
+      name: "🔗 VidLink",
+      description: `${label}${codec}`,
+      url: quality.url,
+      behaviorHints: { notWebReady: false, proxyHeaders: VL_PROXY_HEADERS },
+    });
   };
   for (const q of VL_QUALITY_ORDER) {
     const quality = qualities[q];
-    if (quality?.url) pushStream(VL_QUALITY_LABELS[q] ?? `${q}p`, quality);
+    if (quality?.url) pushMp4(VL_QUALITY_LABELS[q] ?? `${q}p`, quality);
   }
   for (const [key, quality] of Object.entries(qualities)) {
     if (VL_QUALITY_ORDER.includes(key as VLQualityKey)) continue;
-    if (quality?.url) pushStream(`${key}p`, quality);
+    if (quality?.url) pushMp4(`${key}p`, quality);
   }
   return streams;
 }
@@ -2425,20 +2411,20 @@ router.get("/test/vidlink", async (req: Request, res: Response) => {
   report.vidlinkApi = `OK — sourceId=${vlResponse.sourceId}, qualities=[${qualityKeys.join(", ")}]`;
 
   // ── Step 4: Stream URL generation ───────────────────────────────────────────
+  const alternates = vlResponse.stream?.alternates ?? {};
+  const hasDash = "dash" in alternates && !!(alternates as Record<string, { playlist: string }>)["dash"]?.playlist;
   const firstQuality = Object.values(qualities)[0];
   const cdnUrl = firstQuality?.url ?? "";
-  const proxyUrl = buildVidLinkStreamProxyUrl(apiBase(req), cdnUrl, "test.mp4");
-  if (proxyUrl) {
-    report.streamUrl = "SIGNED_PROXY (SESSION_SECRET is set — server-side proxy active, client IP hidden from CDN WAF)";
-    report.urlSample = proxyUrl.slice(0, 80) + "...";
-  } else {
-    report.streamUrl = "DIRECT_FALLBACK (SESSION_SECRET not set — player will fetch CDN directly with proxyHeaders)";
-    report.urlSample = cdnUrl.slice(0, 80) + "...";
-    report.note = "This should still work for home networks. If playback fails, set SESSION_SECRET to enable the server-side proxy.";
-  }
+  report.streamUrl = hasDash
+    ? "DASH_ADAPTIVE (best — player auto-selects quality, no rebuffering)"
+    : "DIRECT_MP4 (Referer-only CDN auth, served direct to player via proxyHeaders)";
+  report.urlSample = (hasDash
+    ? (alternates as Record<string, { playlist: string }>)["dash"]!.playlist
+    : cdnUrl
+  ).slice(0, 80) + "...";
 
   report.diagnosis = "Everything looks healthy. If streams still don't appear in Stremio, " +
-    "restart the Pi server (git pull → pnpm install → pnpm build → restart) to apply any code changes.";
+    "restart the server (git pull → pnpm install → pnpm build → restart) to apply any code changes.";
 
   res.status(200).json(report);
 });
@@ -2632,7 +2618,7 @@ router.get("/stream/:type/:id.json", async (req, res) => {
         ...(s.headers ? { behaviorHints: { proxyHeaders: { request: s.headers } } } : {}),
       }));
       const vlResponse = vlResult.status === "fulfilled" ? vlResult.value as VidLinkResponse | null : null;
-      const vlStreams = vlResponse?.stream?.qualities ? buildVidLinkStreams(vlResponse.stream.qualities, apiBase(req)) : [];
+      const vlStreams = vlResponse?.stream?.qualities ? buildVidLinkStreams(vlResponse.stream.qualities, apiBase(req), vlResponse.stream.alternates as Record<string, { type: string; playlist: string }> | undefined) : [];
       const mbStreams = mbResult.status === "fulfilled" ? mbResult.value : [];
       const mwStreams = mwResult.status === "fulfilled" ? mwResult.value : [];
       const vsStreams = vsResult.status === "fulfilled" ? vsResult.value : [];
@@ -2794,7 +2780,7 @@ router.get("/stream/:type/:id.json", async (req, res) => {
         ...(s.headers ? { behaviorHints: { proxyHeaders: { request: s.headers } } } : {}),
       }));
       const vlResponse2 = vlResult.status === "fulfilled" ? vlResult.value as VidLinkResponse | null : null;
-      const vlStreams2 = vlResponse2?.stream?.qualities ? buildVidLinkStreams(vlResponse2.stream.qualities, apiBase(req)) : [];
+      const vlStreams2 = vlResponse2?.stream?.qualities ? buildVidLinkStreams(vlResponse2.stream.qualities, apiBase(req), vlResponse2.stream.alternates as Record<string, { type: string; playlist: string }> | undefined) : [];
       const mbStreams = mbResult.status === "fulfilled" ? mbResult.value : [];
       const mwStreams = mwResult.status === "fulfilled" ? mwResult.value : [];
       const vsStreams = vsResult.status === "fulfilled" ? vsResult.value : [];
