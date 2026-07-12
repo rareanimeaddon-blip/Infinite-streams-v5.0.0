@@ -429,42 +429,28 @@ interface DetailsPayload {
  * @param season  - Season number (series only; default 1)
  * @param episode - Episode number (series only; default 1)
  */
-// Maps TMDB ISO 639-1 language codes to Castle track languageName values.
-const ISO_TO_CASTLE: Record<string, string> = {
-  en: "English", hi: "Hindi", ta: "Tamil", te: "Telugu",
-  ml: "Malayalam", kn: "Kannada", ko: "Korean", ja: "Japanese",
-  zh: "Chinese", fr: "French", es: "Spanish", de: "German",
-  it: "Italian", pt: "Portuguese", ru: "Russian", ar: "Arabic",
-  tr: "Turkish", bn: "Bengali", pa: "Punjabi", mr: "Marathi",
-};
 
 /**
- * Given the title's original ISO 639-1 language code and the full list of
- * Castle tracks, returns only the two tracks to fetch:
- *   1. The original-language track (if available on Castle)
- *   2. Hindi (always, as the most-requested dub)
- * Deduplicates so a Hindi-original title only gives one track.
- * Falls back to returning all tracks if neither is matched.
+ * Filter Castle tracks to only those with genuine individual dubbed videos.
+ *
+ * Castle's API returns an `existIndividualVideo` boolean per track:
+ *   true  → the track has its own separately encoded video file (a real dub)
+ *   false → no individual video exists for this track; it falls back to a
+ *           default stream whose audio may not match the label at all
+ *           (e.g. an "English" track with Hindi audio).
+ *
+ * We only return tracks where existIndividualVideo=true so every stream label
+ * accurately reflects the audio the user will hear.  If NO track has an
+ * individual video (e.g. older titles with a single shared stream), we fall
+ * back to all available tracks rather than returning nothing.
+ *
+ * "OST" (Original SoundTrack) is Castle's label for the original-language
+ * audio — shown as-is since it meaningfully distinguishes it from dubs.
  */
-function pickLanguageTracks(
-  tracks: CastleTrack[],
-  originalLangIso: string | undefined,
-): CastleTrack[] {
+function pickPreferredTracks(tracks: CastleTrack[]): CastleTrack[] {
   if (!tracks.length) return tracks;
-
-  const hindiTrack  = tracks.find((t) => (t.languageName ?? "").toLowerCase() === "hindi");
-  const originalLangName = originalLangIso ? ISO_TO_CASTLE[originalLangIso]?.toLowerCase() : undefined;
-  const originalTrack = originalLangName
-    ? tracks.find((t) => (t.languageName ?? "").toLowerCase() === originalLangName)
-    : undefined;
-
-  // Build deduplicated result: [originalTrack, hindiTrack] minus duplicates/nulls
-  const picked: CastleTrack[] = [];
-  if (originalTrack) picked.push(originalTrack);
-  if (hindiTrack && hindiTrack !== originalTrack) picked.push(hindiTrack);
-
-  // If nothing matched (exotic language Castle doesn't have), return all tracks
-  return picked.length > 0 ? picked : tracks;
+  const withVideo = tracks.filter((t) => t.existIndividualVideo === true);
+  return withVideo.length > 0 ? withVideo : tracks;
 }
 
 export async function getCastleTvStreams(
@@ -540,22 +526,24 @@ export async function getCastleTvStreams(
 
     if (!episodeId) return [];
 
-    // 7. Collect language tracks for the episode and narrow to preferred ones.
+    // 7. Collect language tracks for the episode; keep only those with a
+    //    genuine individual video (existIndividualVideo=true) so every label
+    //    matches the actual audio. Falls back to all tracks for older titles.
     const epEntry = episodes.find((e) => e.id?.toString() === episodeId);
     const allTracks: CastleTrack[] = epEntry?.tracks ?? [];
-    const tracks = pickLanguageTracks(allTracks, originalLanguage);
+    const tracks = pickPreferredTracks(allTracks);
 
     logger.debug(
-      { originalLanguage, totalTracks: allTracks.length, pickedTracks: tracks.map((t) => t.languageName) },
+      { totalTracks: allTracks.length, pickedTracks: tracks.map((t) => t.languageName) },
       "CastleTV: selected language tracks",
     );
 
     const streams: CastleStream[] = [];
     const seenUrls = new Set<string>();
 
-    // 8. Fetch each picked language track across all three quality tiers in parallel.
-    //    Premium-gated or unavailable resolutions return videoUrl=null and are silently
-    //    dropped. Duplicate URLs across languages are deduplicated.
+    // 8. Fetch each picked track across all three quality tiers in parallel.
+    //    Premium-gated or unavailable resolutions return videoUrl=null and are
+    //    silently dropped. Duplicate URLs across tracks are deduplicated.
     if (tracks.length > 0) {
       const langJobs = tracks.map((track) =>
         Promise.allSettled(
