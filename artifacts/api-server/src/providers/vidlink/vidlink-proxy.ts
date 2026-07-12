@@ -3,8 +3,6 @@ import { logger } from "../../lib/logger.js";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
 import { lookup as dnsLookup } from "node:dns/promises";
-import { pipeline } from "node:stream/promises";
-import { Readable } from "node:stream";
 
 const router = Router();
 
@@ -141,40 +139,12 @@ function isDisallowedIpLiteral(h: string): boolean {
   return true; // not a valid IP literal at all -> treat conservatively as disallowed if used where an IP is expected
 }
 
-// ---------------------------------------------------------------------------
-// DNS validation result cache
-//
-// isPrivateOrDisallowedHost is called on every proxy request (HEAD + each GET
-// range request the video player issues).  DNS lookups add 100-300 ms per call,
-// so caching the result eliminates that overhead on all but the first request
-// per hostname.  CDN hostnames are stable — their IPs don't change mid-session.
-//
-// Allowed results are cached for 10 min (well within any CDN TTL, safe against
-// DNS rebinding since we checked at admission time).  Denied results are cached
-// for only 1 min so transient failures (DNS blip) recover quickly.
-// ---------------------------------------------------------------------------
-const DNS_CACHE_ALLOWED_TTL = 10 * 60 * 1000; // 10 minutes
-const DNS_CACHE_DENIED_TTL  =      60 * 1000;  //  1 minute
-
-interface DnsCacheEntry { allowed: boolean; expiresAt: number }
-const dnsValidationCache = new Map<string, DnsCacheEntry>();
-
-function pruneDnsCache(): void {
-  const now = Date.now();
-  for (const [key, entry] of dnsValidationCache) {
-    if (now > entry.expiresAt) dnsValidationCache.delete(key);
-  }
-}
-
 /**
  * Rejects localhost / private / link-local / multicast / reserved targets to
  * prevent SSRF via a replayed signed URL. Resolves the hostname via DNS (rather
  * than only checking the literal string) so a public-looking hostname that
  * actually resolves to an internal IP (DNS rebinding / attacker-controlled DNS)
  * is still caught. Returns true (disallowed) on any lookup failure — fail closed.
- *
- * Results are cached per hostname to avoid paying DNS round-trip cost on every
- * range request the video player issues during buffering and seeking.
  */
 async function isPrivateOrDisallowedHost(hostname: string): Promise<boolean> {
   const h = hostname.toLowerCase();
@@ -182,26 +152,13 @@ async function isPrivateOrDisallowedHost(hostname: string): Promise<boolean> {
 
   if (isIP(h)) return isDisallowedIpLiteral(h);
 
-  // Check cache first
-  const cached = dnsValidationCache.get(h);
-  if (cached && Date.now() < cached.expiresAt) return !cached.allowed;
-
-  let disallowed: boolean;
   try {
     const results = await dnsLookup(h, { all: true, verbatim: true });
-    disallowed = results.length === 0 || results.some((r) => isDisallowedIpLiteral(r.address));
+    if (results.length === 0) return true;
+    return results.some((r) => isDisallowedIpLiteral(r.address));
   } catch {
-    disallowed = true; // DNS failure -> fail closed
+    return true; // DNS failure -> fail closed
   }
-
-  // Opportunistically prune stale entries (map stays tiny for typical use)
-  if (dnsValidationCache.size > 500) pruneDnsCache();
-
-  dnsValidationCache.set(h, {
-    allowed: !disallowed,
-    expiresAt: Date.now() + (disallowed ? DNS_CACHE_DENIED_TTL : DNS_CACHE_ALLOWED_TTL),
-  });
-  return disallowed;
 }
 
 export function encodeProxyUrl(cdnUrl: string): string {
@@ -374,28 +331,17 @@ router.get("/vidlink-stream/:encodedUrl/:filename", async (req: Request, res: Re
     if (cr) res.setHeader("Content-Range", cr);
     if (upstream.status === 206) res.status(206);
 
-    // Use Node.js pipeline for efficient streaming — avoids the JS-level
-    // reader.read() loop overhead and hands backpressure to the kernel.
-    // Cancel the upstream body and abort controller when the client disconnects.
-    const nodeReadable = Readable.fromWeb(
-      upstream.body as import("stream/web").ReadableStream<Uint8Array>,
-    );
-    req.on("close", () => {
-      if (idleTimer) clearTimeout(idleTimer);
-      controller.abort();
-      nodeReadable.destroy();
-    });
-
-    // Wrap res.write to reset the idle timer on each flushed chunk — keeps the
-    // 20 s idle abort working the same way as the old loop.
-    const origWrite = res.write.bind(res);
-    (res as unknown as { write: typeof res.write }).write = (...args: Parameters<typeof res.write>) => {
+    const reader = upstream.body.getReader();
+    req.on("close", () => { if (idleTimer) clearTimeout(idleTimer); reader.cancel().catch(() => {}); });
+    for (;;) {
       resetIdleTimer();
-      return origWrite(...args);
-    };
-
-    await pipeline(nodeReadable, res);
+      const { done, value } = await reader.read();
+      if (done) break;
+      const flushed = res.write(Buffer.from(value));
+      if (!flushed) await new Promise<void>((resolve) => res.once("drain", resolve));
+    }
     if (idleTimer) clearTimeout(idleTimer);
+    res.end();
   } catch (err) {
     clearTimeout(connectTimeout);
     if (idleTimer) clearTimeout(idleTimer);
