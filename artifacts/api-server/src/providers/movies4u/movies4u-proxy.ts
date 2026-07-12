@@ -814,12 +814,25 @@ router.all("/proxy", async (req, res) => {
       if (!res.headersSent) res.status(502).json({ error: "GDFlix: could not resolve to a video URL" });
       return;
     }
-    logger.info({ resolved: resolved.slice(0, 80) }, "Proxy: GDFlix chain resolved — 302 redirect");
-    // Redirect directly to the CDN URL rather than piping it through our server.
-    // Pixeldrain API and Google Video URLs are fully public (no special headers
-    // needed) and support range requests natively — piping a multi-GB file
-    // through our server wastes bandwidth and breaks seeking.
-    if (!res.headersSent) res.redirect(302, resolved);
+    logger.info({ resolved: resolved.slice(0, 80) }, "Proxy: GDFlix chain resolved — piping through server");
+    // Pipe all GDFlix-resolved URLs through our server rather than 302-redirecting.
+    //
+    // Why not redirect?  The foxcloud → Google Video and busycdn → fastcdn-dl chains
+    // produce signed URLs that are effectively IP-bound to the server that generated
+    // them (our Replit instance).  Redirecting hands the URL to Stremio's player,
+    // which fetches from the user's device IP — a different IP — causing 403 errors
+    // or endless-loading in Stremio while the same URL plays fine in VLC/MPV (where
+    // users paste and play immediately, before the IP binding can be detected).
+    //
+    // By piping here, all range requests come from our server IP, which matches the
+    // IP used to generate/verify the signed URL. Pixeldrain is also piped for
+    // consistency (it's fully public but piping avoids any future IP-policy changes).
+    try {
+      await pipeUpstream(resolved, undefined, req, res, { Referer: "https://m4ulinks.site/" });
+    } catch (err) {
+      logger.error({ err, resolved: resolved.slice(0, 80) }, "Proxy: GDFlix pipe error");
+      if (!res.headersSent) res.status(502).end();
+    }
     return;
   }
 

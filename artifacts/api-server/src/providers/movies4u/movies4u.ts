@@ -393,44 +393,28 @@ async function preResolveToBusycdnUrl(url: string): Promise<string | null> {
     if (!res.ok) return null;
     const html = await res.text();
 
-    // Priority 1: Pixeldrain — direct streaming API, no extra hops.
+    // Priority 1: Pixeldrain — direct streaming API, no extra hops, fully public
+    // (no IP binding, no short TTL). Safe to pre-resolve and hand directly to Stremio.
     const pdMatch = html.match(/(?:href|src)="https?:\/\/pixeldrain\.(?:com|dev)\/u\/([A-Za-z0-9]+)(?:\?[^"]*)?"/);
     if (pdMatch?.[1]) {
       return `https://pixeldrain.com/api/file/${pdMatch[1]}`;
     }
 
-    // Priority 2: foxcloud.rest → Google Video URL via 2-hop follow.
-    const foxMatch = html.match(/href="(https?:\/\/cdn\.foxcloud\.rest\/\?url=[^"]*)"/);
-    if (foxMatch?.[1]) {
-      const foxFinal = await followFoxcloudChain(foxMatch[1].replace(/&amp;/g, "&"), url);
-      if (foxFinal) return foxFinal;
-    }
-
-    // Priority 3: busycdn — follow redirect to fastcdn-dl.pages.dev?url=FINAL.
-    const busyMatch = html.match(/href="(https:\/\/instant\.busycdn\.xyz\/[^"]{20,})"/);
-    const busyUrl = busyMatch?.[1];
-    if (!busyUrl) return null;
-
-    const busyRes = await fetch(busyUrl, {
-      headers: { ...BROWSER_HEADERS, Referer: url },
-      signal: AbortSignal.timeout(10_000),
-      redirect: "follow",
-    });
-    const finalUrl = new URL(busyRes.url);
-    busyRes.body?.cancel();
-    const target = finalUrl.searchParams.get("url");
-    // If follow didn't land on a fastcdn-dl URL with ?url=, busycdn is broken.
-    // Return null — do NOT return the raw busycdn URL; it hangs players.
-    if (!target) return null;
-
-    // Verify the extracted CDN link is actually alive before trusting it.
-    const headRes = await fetch(target, {
-      method: "HEAD",
-      headers: { ...BROWSER_HEADERS, Referer: busyUrl },
-      signal: AbortSignal.timeout(8_000),
-      redirect: "follow",
-    }).catch(() => null);
-    return headRes?.ok ? (headRes.url || target) : null;
+    // foxcloud → Google Video and busycdn → fastcdn-dl → Google Video chains are
+    // intentionally NOT pre-resolved here.
+    //
+    // These chains produce signed Google Video URLs that are generated and verified
+    // from OUR server's IP at scrape time. By the time the user clicks play in
+    // Stremio (seconds to minutes later), Stremio's player fetches the URL FROM
+    // THE USER'S DEVICE — a different IP — and the IP-bound signed URL is rejected
+    // (403 / endless loading). Third-party players (VLC, MPV) work because users
+    // typically paste and play immediately while the URL is still valid.
+    //
+    // Fix: return null so the raw GDFlix URL goes through our proxy at PLAY TIME.
+    // The proxy resolves the chain freshly on every play request (server-side),
+    // then pipes the video bytes through our server using the same IP that generated
+    // the signed URL. See resolveGdflixChain() in movies4u-proxy.ts.
+    return null;
   } catch {
     return null; // network error / timeout — caller falls back to lazy proxy
   }
