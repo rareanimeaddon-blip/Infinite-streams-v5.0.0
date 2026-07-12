@@ -12,7 +12,16 @@ const FETCH_HEADERS = {
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
   Referer: "https://onetouchtv.xyz/",
 };
-const FETCH_TIMEOUT_MS = 10000;
+const FETCH_TIMEOUT_MS = 15000;
+// The upstream API is occasionally flaky under load (spurious HTTP 404s and
+// timeouts that succeed on a plain retry) — retry transient failures instead
+// of letting one bad request zero out the whole provider for that title.
+const FETCH_RETRIES = 2;
+const FETCH_RETRY_DELAY_MS = 400;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 // Simple in-memory cache
 const cache = new Map<string, { data: unknown; ts: number }>();
@@ -53,6 +62,17 @@ function decrypt(encoded: string): unknown {
   return JSON.parse(dec.toString("utf8"));
 }
 
+async function fetchEncryptedOnce<T>(url: string): Promise<T> {
+  const res = await fetch(url, {
+    headers: FETCH_HEADERS,
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status} from ${url}`);
+  const text = await res.text();
+  const parsed = decrypt(text) as { result: T };
+  return parsed.result;
+}
+
 async function fetchEncrypted<T>(path: string, cacheTtlMs = CACHE_TTL_MS): Promise<T> {
   const url = path.startsWith("https://") ? path : `${MAIN_URL}${path}`;
 
@@ -61,16 +81,24 @@ async function fetchEncrypted<T>(path: string, cacheTtlMs = CACHE_TTL_MS): Promi
     if (cached !== null) return cached;
   }
 
-  const res = await fetch(url, {
-    headers: FETCH_HEADERS,
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status} from ${url}`);
-  const text = await res.text();
-  const parsed = decrypt(text) as { result: T };
-  const data = parsed.result;
-  if (cacheTtlMs > 0) toCache(url, data);
-  return data;
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= FETCH_RETRIES; attempt++) {
+    try {
+      const data = await fetchEncryptedOnce<T>(url);
+      if (cacheTtlMs > 0) toCache(url, data);
+      return data;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < FETCH_RETRIES) {
+        logger.warn(
+          { url, attempt: attempt + 1, err: err instanceof Error ? err.message : err },
+          "OneTouchTV: fetch failed, retrying",
+        );
+        await sleep(FETCH_RETRY_DELAY_MS * (attempt + 1));
+      }
+    }
+  }
+  throw lastErr;
 }
 
 // ------- Types -------

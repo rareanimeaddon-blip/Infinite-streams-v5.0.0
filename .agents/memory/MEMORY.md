@@ -6,3 +6,4 @@
 - [Stremio provider matching design](stremio-provider-matching-design.md) — title-alias cross-linking, findBestMatchWithRetry wiring, Layer1/Layer2 verify contract, anti-patterns to avoid.
 - [hubcloud.cx resolver](hubcloud-cx-resolver.md) — match its download button by id (`id="fsl"`), not hostname; the backend CDN hostname behind it changes over time.
 - [AnimeDekho NeoCDN worker URL](neocdn-worker-url.md) — page-embedded worker URL is authoritative; direct trycloudflare URLs never work.
+- [OneTouchTV flaky upstream & provider-test port](onetouchtv-flaky-upstream.md) — retry transient 404s/timeouts; provider-test needs `PORT=8080` on Replit or it falsely reports all-zero.

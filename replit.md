@@ -107,6 +107,10 @@ docker run -d -p 7000:7000 --name infinite-streams \
 
 ## Gotchas
 
+- `scripts/src/provider-test.ts` targets `http://localhost:$PORT/api` (default 5000), but on Replit the server actually binds 8080 (see "Replit path-based port routing" below). Run it as `PORT=8080 pnpm --filter @workspace/scripts run provider-test` or it will report 0 streams for everything even when the server is healthy.
+- OneTouchTV's upstream (`api3.devcorp.me`) is occasionally flaky (spurious HTTP 404s / timeouts that succeed on a plain retry). `lib/onetouchtv.ts`'s `fetchEncrypted()` retries transient failures (2 retries, backoff) — don't remove this or single bad requests will zero out the provider for that title.
+- OneTouchTV's title matcher can pick a barely-above-threshold wrong match when its catalog has no real hit (e.g. "Breaking Bad" → a same-named unrelated Chinese drama) — this correctly yields 0 streams for that title since the real show isn't in OneTouchTV's catalog, not a bug.
+
 - VidLink Docker deploys (VPS/self-hosted): the Dockerfile's runtime stage must copy `artifacts/api-server/wasm/` alongside `dist/` — `lib/vidlink.ts` reads `wasm/script.js` and `wasm/fu.wasm` relative to `process.cwd()` at runtime. Without it, VidLink WASM init fails with ENOENT and the provider returns zero streams (works fine on Replit since it runs from source, so this only surfaces on Docker/VPS hosting).
 
 - HDHub4U title matching uses `cleanTitle()` before scoring — if a title scores below 0.5, check the raw Typesense title via `GET /api/debug/hdhub4u?title=…&type=movie`.
