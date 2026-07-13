@@ -678,9 +678,32 @@ export async function getNeoCdnStreams(
       return [];
     }
 
+    // Probe the first source to confirm the trycloudflare tunnel is actually alive.
+    // Tunnels are ephemeral and frequently expire — the CF Worker returns 502 when the
+    // tunnel host is DNS-dead (ENOTFOUND). We skip NeoCDN entirely rather than surfacing
+    // a broken stream to Stremio. This probe goes through the worker since cloud IPs
+    // get 403 from trycloudflare directly.
+    const firstRawUrl = (data.sources[0] as NeoCdnSource).url;
+    try {
+      const probe = await fetch(ACTIVE_WORKER_URL + encodeURIComponent(firstRawUrl), {
+        method: "HEAD",
+        headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!probe.ok && probe.status !== 206) {
+        logger.warn(
+          { mythUrl, probeStatus: probe.status, worker: ACTIVE_WORKER_URL.split("?")[0] },
+          "getNeoCdnStreams: tunnel probe failed — trycloudflare tunnel is dead, skipping",
+        );
+        return [];
+      }
+    } catch (err) {
+      logger.warn({ mythUrl, err }, "getNeoCdnStreams: tunnel probe error — skipping NeoCDN streams");
+      return [];
+    }
+
     // Wrap every source URL through the active worker so Stremio can play it.
-    // Also preserve the original trycloudflare.com URL as `rawUrl` — residential IP
-    // devices (phones, home routers) can often reach trycloudflare URLs directly.
+    // Also preserve the original trycloudflare.com URL as `rawUrl`.
     const sources: NeoCdnSource[] = data.sources.map((s) => ({
       ...s,
       rawUrl: s.url,
