@@ -76,6 +76,8 @@ function buildUpstreamHeaders(extra: Record<string, string>): Record<string, str
 }
 
 // ─── Binary proxy ─────────────────────────────────────────────────────────────
+// Handles both HLS segments (small, no range needed) and full mp4 files
+// (large — must forward the Range header so the player can seek).
 
 router.get("/meow-proxy", async (req: Request, res: Response): Promise<void> => {
   setCors(res);
@@ -161,8 +163,8 @@ router.get("/meow-proxy", async (req: Request, res: Response): Promise<void> => 
 //
 // This endpoint stores only the resolution params (type/imdb/server/season/ep).
 // At play time it re-calls the MeowTV API to get a live token, caches the fresh
-// URL for 15 min (to serve multiple range requests in one session), then issues
-// a 302 redirect so the player's device IP hits the CDN directly.
+// URL for 15 min (to serve multiple range requests in one session), then proxies
+// bytes server-side with Range support so seeking works.
 
 interface FreshStreamCacheEntry {
   data: MeowStreamData;
@@ -194,6 +196,7 @@ async function getFreshStreamData(
   freshStreamCache.set(cacheKey, { data, fetchedAt: Date.now() });
   return data;
 }
+
 
 router.get("/meow-fresh-stream", async (req: Request, res: Response): Promise<void> => {
   setCors(res);
@@ -227,7 +230,9 @@ router.get("/meow-fresh-stream", async (req: Request, res: Response): Promise<vo
     // We must NOT proxy bytes through our server — the player's consumer IP
     // must hit the CDN directly.  Issue a 302 redirect so Stremio's local
     // streaming server (127.0.0.1:11470) follows it to the CDN with the
-    // device's IP.
+    // device's IP.  The proxyHeaders set on the stream object (Referer,
+    // User-Agent) are forwarded by Stremio's streaming server through
+    // the redirect, satisfying any CDN header checks.
     logger.info({ server, imdb, url: data.url.slice(0, 80) }, "MeowTV fresh-stream: redirecting to fresh CDN URL");
     res.redirect(302, data.url);
   } catch (e) {
