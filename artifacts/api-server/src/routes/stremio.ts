@@ -1059,6 +1059,26 @@ function isDirectCdn(url: string): boolean {
 const AD_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
 function adStreamToStremio(s: ADStream, req?: Request): Record<string, unknown> {
+  // NeoCDN stable proxy: re-resolve the live CF Worker URL at play time.
+  // "neocdn:BASE64URL_MYTH:TYPE" encodes the myth player URL + quality type.
+  // /adneoproxy fetches the myth page fresh on every request to get the current worker.
+  if (s.url.startsWith("neocdn:")) {
+    const rest = s.url.slice("neocdn:".length);
+    const sep = rest.indexOf(":");
+    const m = sep >= 0 ? rest.slice(0, sep) : rest;
+    const t = sep >= 0 ? rest.slice(sep + 1) : "";
+    const base = req ? apiBase(req) : "";
+    if (base && m) {
+      return {
+        name: s.name,
+        title: s.title,
+        url: `${base}/adneoproxy?m=${m}&t=${t}`,
+        behaviorHints: { notWebReady: false },
+      };
+    }
+    return { name: s.name, title: s.title, url: s.url, behaviorHints: { notWebReady: false } };
+  }
+
   const isHls = s.type === "hls" || s.url.includes(".m3u8");
   const base = req ? apiBase(req) : "";
 
@@ -1186,17 +1206,29 @@ function wrapM4uGdflixStreams(streams: unknown[], req: Request): unknown[] {
 }
 
 function neoCdnSourceToStream(src: NeoCdnSource): ADStream[] {
-  // trycloudflare.com URLs (rawUrl) do NOT work directly — the tunnel only
-  // serves content via the CF Worker proxy. Return only the worker-wrapped URL.
-  return [
-    {
+  // Stable approach: encode the myth player URL into a "neocdn:" key.
+  // adStreamToStremio() detects this prefix and rewrites it to /adneoproxy?m=...&t=...
+  // The proxy re-fetches AnimeDekho's myth page at play time to get the CURRENT live
+  // CF Worker URL — immune to worker rotation (workers rotate every few minutes).
+  if (src.mythUrl) {
+    const m = Buffer.from(src.mythUrl).toString("base64url");
+    const t = encodeURIComponent(src.type);
+    return [{
       name: "AnimeDekho | NeoCDN",
       title: `${src.type} [${src.size}]`,
-      url: src.url,
+      url: `neocdn:${m}:${t}`,
       type: "url",
       behaviorHints: { notWebReady: false },
-    },
-  ];
+    }];
+  }
+  // No mythUrl — fall back to pre-resolved worker URL (may be stale)
+  return [{
+    name: "AnimeDekho | NeoCDN",
+    title: `${src.type} [${src.size}]`,
+    url: src.url,
+    type: "url",
+    behaviorHints: { notWebReady: false },
+  }];
 }
 
 async function collectAnimeDekhoEpisodeStreams(

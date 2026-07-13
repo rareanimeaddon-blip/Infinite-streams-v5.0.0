@@ -315,4 +315,175 @@ router.options("/adseg", (_req, res) => {
   res.status(204).end();
 });
 
+// ─── /adneoproxy — NeoCDN stable MP4 proxy ────────────────────────────────────
+// AnimeDekho's NeoCDN streams are served via a Cloudflare Worker that rotates
+// every few minutes. Instead of baking the current worker URL into a cached
+// stream object (which quickly goes stale), we store only the myth player URL.
+// On every play/seek request we re-fetch the myth page to get the CURRENT live
+// worker URL, then proxy the MP4 through it — immune to rotation.
+//
+// Query params:
+//   ?m  = base64url-encoded myth player URL
+//   ?t  = URL-encoded quality type (e.g. "480p") — picks best available if omitted
+
+interface NeoProxyCacheEntry {
+  workerUrl: string;
+  fetchId: string;
+  expires: number;
+}
+const neoProxyCache = new Map<string, NeoProxyCacheEntry>();
+const NEO_PROXY_CACHE_TTL = 3 * 60 * 1000; // 3 min — conservative vs observed rotation speed
+const NEO_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
+
+async function resolveNeoWorkerAndFetchId(
+  mythUrl: string,
+  force = false,
+): Promise<{ workerUrl: string; fetchId: string } | null> {
+  const now = Date.now();
+  const cached = neoProxyCache.get(mythUrl);
+  if (!force && cached && cached.expires > now) {
+    return { workerUrl: cached.workerUrl, fetchId: cached.fetchId };
+  }
+  try {
+    const resp = await fetch(mythUrl, {
+      headers: {
+        Cookie: "toronites_server=vidstream",
+        "User-Agent": NEO_UA,
+        Referer: "https://animedekho.app/",
+      },
+      signal: AbortSignal.timeout(12_000),
+    });
+    if (!resp.ok) return null;
+    const html = await resp.text();
+
+    const fetchId = html.match(/myth\/fetch\.php\?id=([^"'\s\\]+)/)?.[1];
+    if (!fetchId) return null;
+
+    const rawWorker = html.match(/const\s+worker\s*=\s*["']([^"']+)["']/)?.[1]?.trim() ?? "";
+    const workerBase = rawWorker.startsWith("https://") ? rawWorker : "";
+    // Fallback: last known-good worker (used only if myth page provides none)
+    const workerUrl = workerBase
+      ? (workerBase.includes("?") ? workerBase : workerBase + "?url=")
+      : "https://jolly-salad-69ad.zenhashi.workers.dev/?url=";
+
+    neoProxyCache.set(mythUrl, { workerUrl, fetchId, expires: now + NEO_PROXY_CACHE_TTL });
+    logger.info(
+      { workerUrl, fetchId: fetchId.slice(0, 24) + "…", cached: false },
+      "adneoproxy: resolved live worker",
+    );
+    return { workerUrl, fetchId };
+  } catch (err) {
+    logger.warn({ mythUrl, err }, "adneoproxy: myth page fetch failed");
+    return null;
+  }
+}
+
+router.get("/adneoproxy", async (req: Request, res: Response) => {
+  const { m, t } = req.query as Record<string, string | undefined>;
+  if (!m) { res.status(400).end(); return; }
+
+  let mythUrl: string;
+  try {
+    mythUrl = Buffer.from(m, "base64url").toString("utf8");
+    new URL(mythUrl); // validate
+  } catch {
+    res.status(400).end(); return;
+  }
+
+  const requestedType = t ? decodeURIComponent(t) : "";
+
+  // Fetch current sources from fetch.php (always fresh — trycloudflare URLs are ephemeral)
+  const fetchSources = async (fetchId: string) => {
+    const r = await fetch(`https://animedekho.app/aaa/myth/fetch.php?id=${fetchId}`, {
+      headers: { Referer: mythUrl, "User-Agent": NEO_UA },
+      signal: AbortSignal.timeout(12_000),
+    });
+    if (!r.ok) return null;
+    const data = await r.json() as { sources?: Array<{ url: string; size: string; type: string }> };
+    return data.sources?.length ? data.sources : null;
+  };
+
+  // Proxy a single source URL through the given worker, forwarding range headers.
+  // Returns true if the response was 2xx/206 and has been piped; false on error.
+  const proxyThrough = async (workerUrl: string, sourceUrl: string): Promise<boolean> => {
+    const headers: Record<string, string> = { "User-Agent": NEO_UA };
+    const range = req.headers["range"] as string | undefined;
+    if (range) headers["Range"] = range;
+
+    const upstream = await fetch(workerUrl + encodeURIComponent(sourceUrl), {
+      headers,
+      signal: AbortSignal.timeout(60_000),
+    });
+
+    if (!upstream.ok && upstream.status !== 206) {
+      logger.warn(
+        { worker: workerUrl.split("?")[0], status: upstream.status },
+        "adneoproxy: worker returned error",
+      );
+      return false;
+    }
+
+    res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "video/mp4");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Expose-Headers", "Content-Range, Accept-Ranges, Content-Length");
+    res.setHeader("Accept-Ranges", "bytes");
+    res.setHeader("Cache-Control", "no-store");
+    const cl = upstream.headers.get("content-length");
+    if (cl) res.setHeader("Content-Length", cl);
+    const cr = upstream.headers.get("content-range");
+    if (cr) res.setHeader("Content-Range", cr);
+    res.status(upstream.status);
+
+    if (!upstream.body) { res.end(); return true; }
+    const reader = upstream.body.getReader();
+    req.on("close", () => reader.cancel().catch(() => {}));
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (res.destroyed) break;
+      res.write(Buffer.from(value));
+    }
+    res.end();
+    return true;
+  };
+
+  try {
+    // Step 1 — resolve current worker + fetchId (cached, 3-min TTL)
+    let resolved = await resolveNeoWorkerAndFetchId(mythUrl);
+    if (!resolved) { res.status(502).json({ error: "myth page unavailable" }); return; }
+
+    // Step 2 — fetch current source URLs (always live, not cached)
+    let sources = await fetchSources(resolved.fetchId);
+    if (!sources) { res.status(404).end(); return; }
+
+    const pickSrc = (srcs: typeof sources) =>
+      (requestedType && srcs!.find(s => s.type === requestedType)) ?? srcs![srcs!.length - 1]!;
+
+    // Step 3 — proxy through current worker
+    let ok = await proxyThrough(resolved.workerUrl, pickSrc(sources).url);
+
+    if (!ok) {
+      // Worker failed — bust cache and retry with a freshly-resolved worker
+      neoProxyCache.delete(mythUrl);
+      logger.info({ mythUrl }, "adneoproxy: worker failed — retrying with fresh worker");
+      resolved = await resolveNeoWorkerAndFetchId(mythUrl, true);
+      if (!resolved) { if (!res.headersSent) res.status(502).end(); return; }
+      sources = await fetchSources(resolved.fetchId);
+      if (!sources) { if (!res.headersSent) res.status(404).end(); return; }
+      ok = await proxyThrough(resolved.workerUrl, pickSrc(sources).url);
+      if (!ok && !res.headersSent) res.status(502).end();
+    }
+  } catch (err) {
+    logger.error({ err, mythUrl }, "adneoproxy: unexpected error");
+    if (!res.headersSent) res.status(502).end();
+  }
+});
+
+router.options("/adneoproxy", (_req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Headers", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.status(204).end();
+});
+
 export default router;
