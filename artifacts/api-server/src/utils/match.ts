@@ -360,10 +360,22 @@ export function findBestMatch<T>(
  * Retries a search across several query-string variants (e.g. resolved
  * title, original title, aliases, IMDB title, TMDB title) until one of them
  * produces a candidate above threshold. Every attempt's candidates are
- * scored with the same `findBestMatch` pass; if no attempt clears the
- * threshold, the single best-scoring candidate seen across all attempts is
- * returned anyway (never rejecting purely because of a near-miss score) —
- * callers that want a hard cutoff should check `result.score` themselves.
+ * scored with the same `findBestMatch` pass.
+ *
+ * If NO attempt clears the threshold, this returns `best: null` — the
+ * content is treated as not-found rather than guessing. This was changed
+ * (2026-07-12) from an earlier "return the best-scoring candidate anyway"
+ * fallback: every caller across the codebase trusts `.best` unconditionally
+ * without checking `.score`, so that fallback was silently turning "this
+ * title isn't in this provider's catalog" into "return some other,
+ * unrelated title's streams instead" — e.g. searching a site with no "House"
+ * (House M.D.) would confidently return "House of Cards" or "Little House
+ * on the Prairie" streams instead of admitting no match. A missing stream is
+ * an honest, visible gap; a wrong stream is a silent correctness bug — this
+ * function must prefer the former.
+ *
+ * `result.ranked` still exposes every candidate seen (with scores) for
+ * callers/logs that want the near-miss info even when `best` is null.
  */
 export async function findBestMatchWithRetry<T>(
   query: MatchQuery,
@@ -373,6 +385,9 @@ export async function findBestMatchWithRetry<T>(
 ): Promise<FindBestMatchResult<T>> {
   const threshold = options.threshold ?? DEFAULT_THRESHOLD;
   const tried = new Set<string>();
+  // Track the best-scoring result across all attempts purely for logging /
+  // `.ranked` visibility — it is never returned as `.best` unless it clears
+  // the threshold. See the doc comment above for why.
   let bestSoFar: FindBestMatchResult<T> | null = null;
 
   for (const variant of variantTitles) {
@@ -405,14 +420,16 @@ export async function findBestMatchWithRetry<T>(
     }
   }
 
-  if (bestSoFar) {
+  if (bestSoFar && bestSoFar.score > 0) {
     logger.info(
       {
         provider: options.provider,
         triedVariants: [...tried],
         bestScore: round(bestSoFar.score),
+        bestTitle: bestSoFar.best?.title ?? bestSoFar.ranked[0]?.candidate.title ?? null,
+        threshold,
       },
-      `[Match:${options.provider}] no variant cleared threshold — returning overall best candidate seen`,
+      `[Match:${options.provider}] no variant cleared threshold — treating as not found (near-miss logged, not returned)`,
     );
   } else {
     logger.info(
@@ -421,16 +438,16 @@ export async function findBestMatchWithRetry<T>(
     );
   }
 
-  return (
-    bestSoFar ?? {
-      best: null,
-      score: 0,
-      breakdown: {},
-      matchedOn: "",
-      reason: "no results found across any title variant",
-      ranked: [],
-    }
-  );
+  return {
+    best: null,
+    score: bestSoFar?.score ?? 0,
+    breakdown: bestSoFar?.breakdown ?? {},
+    matchedOn: bestSoFar?.matchedOn ?? "",
+    reason: bestSoFar
+      ? `best candidate across all variants scored ${round(bestSoFar.score)}, below threshold ${threshold} — rejected`
+      : "no results found across any title variant",
+    ranked: bestSoFar?.ranked ?? [],
+  };
 }
 
 /** Convenience: build the ordered list of title variants to retry with, from a resolved-meta object. */

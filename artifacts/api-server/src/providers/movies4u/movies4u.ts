@@ -6,6 +6,7 @@
 
 import { load } from "cheerio";
 import { logger } from "../../lib/logger.js";
+import { findBestMatch, type MatchCandidate } from "../../utils/match.js";
 
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 const TMDB_BASE = "https://api.themoviedb.org/3";
@@ -632,15 +633,28 @@ export async function getMovies4uStreams(
 
     if (!articles.length) return [];
 
-    // Pick best matching article
-    const titleLc = title.toLowerCase();
-    const best =
-      articles.find((a) => {
-        const n = a.name.toLowerCase();
-        return n.includes(titleLc) && (!year || n.includes(year));
-      }) ??
-      articles.find((a) => a.name.toLowerCase().includes(titleLc)) ??
-      articles[0];
+    // Pick best matching article via the shared cross-provider matcher instead of
+    // blindly falling back to articles[0]. The old fallback meant that if this
+    // site's search returned zero results actually containing the title, it
+    // would confidently return the FIRST unrelated search result anyway (e.g.
+    // searching "House" with no real "House" post on site would grab whatever
+    // WordPress returned first) — a silent wrong-content bug, not a missing-
+    // content one. The shared matcher requires real title similarity and
+    // returns no match when nothing clears the confidence threshold.
+    const articleCandidates: MatchCandidate<{ href: string; name: string }>[] = articles.map((a) => {
+      const yearMatch = /\b(19|20)\d{2}\b/.exec(a.name);
+      return {
+        title: a.name,
+        year: yearMatch ? parseInt(yearMatch[0], 10) : undefined,
+        raw: a,
+      };
+    });
+    const { best: matchedArticle } = findBestMatch(
+      { title, year: year ? parseInt(year, 10) : undefined, type },
+      articleCandidates,
+      { provider: "Movies4u", query: title, quiet: true },
+    );
+    const best = matchedArticle?.raw ?? null;
 
     if (!best) return [];
 

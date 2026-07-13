@@ -8,3 +8,6 @@
 - [AnimeDekho NeoCDN worker URL](neocdn-worker-url.md) — page-embedded worker URL is authoritative; direct trycloudflare URLs never work.
 - [OneTouchTV flaky upstream & provider-test port](onetouchtv-flaky-upstream.md) — retry transient 404s/timeouts; provider-test needs `PORT=8080` on Replit or it falsely reports all-zero.
 - [Provider folder isolation convention](provider-folder-isolation.md) — providers/+extractors/ fully isolated per provider by user decision; lib/utils/stremio.ts stay shared/excluded — scope boundaries and known gaps.
+- [Title-matcher never-guess principle](title-matcher-never-guess.md) — shared matcher and ad-hoc scorers must return null below threshold, never a best-guess; TMDB Layer-2 verify must score candidates and use the MATCHED item's own year, not the query's year.
+- [HubCloud/HubDrive archive-only links](hubcloud-archive-links.md) — season packs sometimes resolve to a single .zip/.rar, not a playable file; must be filtered post-resolve, not treated as a stream.
+- [AnimeDekho slow search endpoint](animedekho-slow-search.md) — popular/broad queries can take 15-25s server-side; shared 10s fetch default silently drops real results as "no match".

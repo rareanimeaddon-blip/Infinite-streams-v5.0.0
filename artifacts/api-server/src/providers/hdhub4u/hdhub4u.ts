@@ -9,6 +9,7 @@ import {
   extractLanguage,
   resolveLink,
   extractImdbIdFromHtml,
+  isArchiveFile,
   cache,
   TTL,
 } from "./hdhub4u-base.js";
@@ -496,6 +497,10 @@ export async function extractStreams(
 
       const resolved = await resolveLink(finalLink, qualityHint);
       if (!resolved) return null;
+      if (isArchiveFile(resolved.url)) {
+        logger.info({ url: resolved.url }, "HDHub4U: skipping archive (zip/rar) file — not playable");
+        return null;
+      }
 
       return {
         url: resolved.url,

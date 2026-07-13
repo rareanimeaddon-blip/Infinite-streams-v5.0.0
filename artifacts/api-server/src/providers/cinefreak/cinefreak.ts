@@ -15,6 +15,8 @@
  */
 
 import { logger } from "../../lib/logger.js";
+import { findBestMatch, type MatchCandidate } from "../../utils/match.js";
+import { tmdbTitleToImdbId } from "../../lib/tmdb-verify.js";
 
 const BASE_URL = "https://cinefreak.nl";
 const CINECLOUD_BASE = "https://new5.cinecloud.site";
@@ -107,38 +109,20 @@ async function searchCinefreak(
 
 // ─── Title matching ───────────────────────────────────────────────────────────
 
-function wordMatchScore(query: string, target: string): number {
-  const words = String(query || "")
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .split(/\s+/)
-    .filter((w) => w.length >= 3);
-
-  if (words.length === 0) return 0;
-  let hits = 0;
-  for (const word of words) {
-    const re = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
-    if (re.test(target)) hits++;
-  }
-  return hits / words.length;
-}
-
-function urlMatchScore(title: string, url: string): number {
-  const slug = String(title || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "-")
-    .replace(/-+/g, "-");
-  const tokens = slug.split("-").filter((t) => t.length > 2);
-  if (tokens.length === 0) return 0;
-  const urlLc = String(url || "").toLowerCase();
-  let hits = 0;
-  for (const tok of tokens) {
-    if (urlLc.includes(tok)) hits++;
-  }
-  return hits / tokens.length;
-}
-
+/**
+ * Pick the best search result for a query title using the shared cross-provider
+ * matcher instead of CineFreak's old bespoke word/URL-overlap scoring.
+ *
+ * The old scorer had no real rejection floor (accepted anything scoring >= 3)
+ * and gave a season-string coincidence a huge, decisive bonus — so a generic
+ * one-word query like "House" would confidently match "Little House on the
+ * Prairie" (an unrelated show that happened to be tagged "Season 1" on the
+ * fansite) purely because no result for the real show ("House" M.D., which
+ * this site doesn't carry) existed at all. The shared matcher requires the
+ * TEXT similarity itself to be strong before a season/year signal can tip the
+ * balance, and returns no match (instead of a bad guess) when nothing clears
+ * the confidence threshold — an honest "not found" beats a wrong stream.
+ */
 function matchResult(
   title: string,
   year: string | null,
@@ -147,47 +131,28 @@ function matchResult(
 ): SearchResult | null {
   if (!results.length) return null;
 
-  const seasonRe = season ? new RegExp(`(?:season|s)\\s*${season}\\b`, "i") : null;
+  const candidates: MatchCandidate<SearchResult>[] = results.map((r) => {
+    const seasonMatch = /season\s*(\d+)/i.exec(r.title);
+    const yearMatch = /\b(19|20)\d{2}\b/.exec(r.title);
+    return {
+      title: r.title,
+      year: yearMatch ? parseInt(yearMatch[0], 10) : undefined,
+      season: seasonMatch ? parseInt(seasonMatch[1]!, 10) : undefined,
+      raw: r,
+    };
+  });
 
-  function score(r: SearchResult): number {
-    let s = 0;
-    const t = r.title.toLowerCase();
-    const titleLc = title.toLowerCase().trim();
+  const { best } = findBestMatch(
+    {
+      title,
+      year: year ? parseInt(year, 10) : undefined,
+      season: season ?? undefined,
+    },
+    candidates,
+    { provider: "CineFreak", query: title, quiet: true },
+  );
 
-    // Title starts with query
-    if (t.indexOf(titleLc) === 0 || t.indexOf(titleLc + " ") === 0) s += 10;
-    // URL slug match
-    s += urlMatchScore(title, r.url) * 5;
-    // Word overlap
-    s += wordMatchScore(title, r.title);
-    // Year boost
-    if (year && t.includes(year)) s += 3;
-    // Season match boost
-    if (seasonRe && seasonRe.test(r.title)) s += 10;
-
-    return s;
-  }
-
-  // If TV with season — prefer results that explicitly mention the season
-  if (seasonRe) {
-    let best: SearchResult | null = null;
-    let bestScore = -1;
-    for (const r of results) {
-      if (seasonRe.test(r.title)) {
-        const sc = score(r) + 10;
-        if (sc > bestScore) { bestScore = sc; best = r; }
-      }
-    }
-    if (best) return best;
-  }
-
-  let best: SearchResult | null = null;
-  let bestScore = -1;
-  for (const r of results) {
-    const sc = score(r);
-    if (sc > bestScore) { bestScore = sc; best = r; }
-  }
-  return bestScore >= 3 ? best : null;
+  return best?.raw ?? null;
 }
 
 // ─── Generate link extraction ─────────────────────────────────────────────────
@@ -579,6 +544,8 @@ function buildStream(
  * @param type    - "movie" or "series"
  * @param season  - Season number (series only; default 1)
  * @param episode - Episode number (series only; default 1)
+ * @param imdbId  - Requested IMDB ID, used for a Layer-2 cross-check that rejects
+ *                  a confirmed-wrong match (see other providers for the same pattern).
  */
 export async function getCinefreakStreams(
   title: string,
@@ -586,6 +553,7 @@ export async function getCinefreakStreams(
   type: "movie" | "series",
   season = 1,
   episode = 1,
+  imdbId?: string,
 ): Promise<CinefreakStream[]> {
   try {
     if (!title) return [];
@@ -603,6 +571,20 @@ export async function getCinefreakStreams(
     // 2. Match best result
     const matched = matchResult(title, year ?? null, isTv ? season : null, results);
     if (!matched) return [];
+
+    // 2b. Layer 2 — IMDB ID cross-check (see HDGharTV/HDHub4U for rationale).
+    // Only rejects on a CONFIRMED mismatch; an inconclusive TMDB lookup (null)
+    // always passes through.
+    if (imdbId?.startsWith("tt")) {
+      const resolvedId = await tmdbTitleToImdbId(matched.title, undefined, type).catch(() => null);
+      if (resolvedId && resolvedId !== imdbId) {
+        logger.info(
+          { title, expectedImdbId: imdbId, resolvedId, matchedTitle: matched.title },
+          "CineFreak: IMDB ID mismatch — rejecting match",
+        );
+        return [];
+      }
+    }
 
     // 3. Fetch post page
     const postUrl = matched.url.startsWith("http")

@@ -121,7 +121,18 @@ function parseArticle($: ReturnType<typeof cheerio.load>, el: any): SearchResult
 export async function search(query: string): Promise<SearchResult[]> {
   logger.info({ query }, "AnimeDekho search");
   try {
-    const $ = await fetchDoc(`${BASE_URL}/search/${encodeURIComponent(query)}`);
+    // animedekho.app's search endpoint is genuinely slow for broad/popular
+    // queries (e.g. "Naruto" observed taking ~20s server-side) — the shared
+    // fetch default of 10s aborts these before the site ever responds,
+    // silently turning a real result into "no streams". Give search specifically
+    // more room, and retry once on a timeout/network error before giving up.
+    let $;
+    try {
+      $ = await fetchDoc(`${BASE_URL}/search/${encodeURIComponent(query)}`, { timeout: 25000 });
+    } catch (err) {
+      logger.warn({ query, err }, "AnimeDekho search: first attempt failed, retrying once");
+      $ = await fetchDoc(`${BASE_URL}/search/${encodeURIComponent(query)}`, { timeout: 25000 });
+    }
     const results: SearchResult[] = [];
     // Only look inside ul[data-results] — the generic "article" fallback
     // grabs sidebar/related-posts content and returns wrong items

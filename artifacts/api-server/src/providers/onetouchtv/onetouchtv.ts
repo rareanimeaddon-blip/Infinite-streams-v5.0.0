@@ -2,6 +2,7 @@ import { createDecipheriv } from "crypto";
 import { logger } from "../../lib/logger.js";
 import { getEpisodesPerSeason } from "../../lib/cinemeta.js";
 import { findBestMatch, type MatchCandidate, type ContentType } from "../../utils/match.js";
+import { tmdbTitleToImdbId } from "../../lib/tmdb-verify.js";
 
 const MAIN_URL = "https://api3.devcorp.me";
 // 32-byte AES key and 16-byte IV (extracted from the original obfuscated plugin)
@@ -358,6 +359,32 @@ export async function getStreams(
   }
 
   if (!matchResult) return [];
+
+  // Layer 2 — IMDB ID cross-check (see HDGharTV/HDHub4U for the same pattern).
+  // Generic short titles ("House") can score just above the fuzzy-matcher's
+  // threshold against an unrelated title ("House of Stars") purely from
+  // whole-word/starts-with overlap — this catches that case by confirming the
+  // matched title actually resolves to the requested IMDB ID. Only rejects on
+  // a CONFIRMED mismatch; an inconclusive TMDB lookup (null) always passes through.
+  if (imdbId?.startsWith("tt")) {
+    // Verify using the MATCHED result's own year, not the query's expected
+    // year — passing the query year here would search TMDB for the matched
+    // title constrained to a year it was never released in, always come back
+    // empty, and silently pass every mismatch through as "inconclusive".
+    const matchedYear = matchResult.year ? parseInt(matchResult.year, 10) : undefined;
+    const resolvedId = await tmdbTitleToImdbId(
+      matchResult.title,
+      Number.isFinite(matchedYear) ? matchedYear : undefined,
+      type,
+    ).catch(() => null);
+    if (resolvedId && resolvedId !== imdbId) {
+      logger.info(
+        { title, expectedImdbId: imdbId, resolvedId, matchedTitle: matchResult.title },
+        "OneTouchTV: IMDB ID mismatch — rejecting match",
+      );
+      return [];
+    }
+  }
 
   const detail = await getDetail(matchResult.id);
   if (!detail || !detail.episodes || detail.episodes.length === 0) {

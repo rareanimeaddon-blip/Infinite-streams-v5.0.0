@@ -182,6 +182,32 @@ export interface ResolvedStream {
   size?: string;
 }
 
+/**
+ * True when a resolved CDN URL points at an archive (.zip/.rar/.7z) rather than
+ * a playable video file. HubCloud/HubDrive season packs are sometimes a single
+ * zipped bundle of every episode (e.g. "HOUSE.S01.1080p...zip") rather than
+ * per-episode files — Stremio can't play an archive, so a stream resolving to
+ * one must be treated as "no stream", not surfaced as a broken playable link.
+ * Checks both the URL path and the `response-content-disposition` filename
+ * query param, since CDN download links usually carry the real filename there.
+ */
+export function isArchiveFile(url: string): boolean {
+  let filename = url;
+  try {
+    const u = new URL(url);
+    const disposition = u.searchParams.get("response-content-disposition");
+    if (disposition) {
+      const m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition);
+      if (m?.[1]) filename = decodeURIComponent(m[1]);
+    } else {
+      filename = u.pathname;
+    }
+  } catch {
+    // not a valid absolute URL — fall through to raw string check
+  }
+  return /\.(zip|rar|7z)(?:["'?]|$)/i.test(filename);
+}
+
 const DEFAULT_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0";
 
