@@ -11,3 +11,4 @@
 - [Title-matcher never-guess principle](title-matcher-never-guess.md) — shared matcher and ad-hoc scorers must return null below threshold, never a best-guess; TMDB Layer-2 verify must score candidates and use the MATCHED item's own year, not the query's year.
 - [HubCloud/HubDrive archive-only links](hubcloud-archive-links.md) — season packs sometimes resolve to a single .zip/.rar, not a playable file; must be filtered post-resolve, not treated as a stream.
 - [AnimeDekho slow search endpoint](animedekho-slow-search.md) — popular/broad queries can take 15-25s server-side; shared 10s fetch default silently drops real results as "no match".
+- [AnimeDekho HydraX/Abyss integration](animedekho-hydrax-abyss.md) — Abyss CDN 404s if the final byte-fetch includes an Origin header (only needed on the embed page); special-cased proxy design mirrors NeoCDN.

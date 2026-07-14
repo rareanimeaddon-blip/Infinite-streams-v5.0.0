@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { logger } from "../../lib/logger.js";
 import { BASE_PATH } from "../../lib/base-path.js";
+import { getAbyssSourcesCached, pickAbyssSourceByKey } from "./animedekho.js";
 
 const router = Router();
 
@@ -480,6 +481,101 @@ router.get("/adneoproxy", async (req: Request, res: Response) => {
 });
 
 router.options("/adneoproxy", (_req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Headers", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.status(204).end();
+});
+
+// ─── /adabyssproxy — HydraX (Abyss) stable proxy ──────────────────────────────
+// Abyss CDN links are short-lived / limited-use — reusing a raw hotlinked url
+// (or handing it straight to the player) gets it blocked. So instead of
+// baking a resolved CDN url into the stream list, we store only the stable
+// trdekho slot URL (re-derivable any time from term/mediaType/index). On
+// every play/seek request we re-resolve via getAbyssSourcesCached (fresh, or
+// reused from its own short sliding-window cache for continuous playback)
+// and stream the bytes through ourselves — this is what actually survives
+// the CDN blocking reused/expired links would otherwise trigger.
+//
+// Query params:
+//   ?u = base64url-encoded stable trdekho URL
+//   ?k = quality key identifying which resolved source to serve (see abyssQualityKey)
+
+// NOTE: deliberately no Origin header here — the sssrr.org CDN behind Abyss
+// returns 404 (not a normal block page) when an Origin header is present on
+// the actual media fetch, even though the same header is required on the
+// abyssplayer.com embed page fetch during resolution. UA + Referer only.
+const ABYSS_STREAM_HEADERS: Record<string, string> = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  Referer: "https://playhydrax.com/",
+};
+
+router.get("/adabyssproxy", async (req: Request, res: Response) => {
+  const { u, k } = req.query as Record<string, string | undefined>;
+  if (!u) { res.status(400).end(); return; }
+
+  let trdekhoUrl: string;
+  try {
+    trdekhoUrl = Buffer.from(u, "base64url").toString("utf8");
+    new URL(trdekhoUrl); // validate
+  } catch {
+    res.status(400).end(); return;
+  }
+
+  const abortController = new AbortController();
+  req.on("close", () => abortController.abort());
+
+  try {
+    const sources = await getAbyssSourcesCached(trdekhoUrl, "https://animedekho.app/");
+    if (sources.length === 0) { res.status(404).end(); return; }
+
+    const match = k ? pickAbyssSourceByKey(sources, k) : sources[0];
+    if (!match) { res.status(404).end(); return; }
+
+    const upstreamHeaders: Record<string, string> = { ...ABYSS_STREAM_HEADERS };
+    const range = req.headers["range"] as string | undefined;
+    if (range) upstreamHeaders["Range"] = range;
+
+    const upstream = await fetch(match.url, {
+      headers: upstreamHeaders,
+      signal: abortController.signal,
+    });
+
+    if (!upstream.ok && upstream.status !== 206) {
+      logger.warn({ trdekhoUrl, status: upstream.status }, "adabyssproxy: upstream fetch failed");
+      res.status(502).end();
+      return;
+    }
+
+    res.status(upstream.status);
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Expose-Headers", "Content-Range, Accept-Ranges, Content-Length");
+    for (const header of ["content-type", "content-length", "content-range", "accept-ranges"]) {
+      const value = upstream.headers.get(header);
+      if (value) res.setHeader(header, value);
+    }
+
+    if (!upstream.body) { res.end(); return; }
+    const reader = upstream.body.getReader();
+    req.on("close", () => reader.cancel().catch(() => {}));
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (res.destroyed) break;
+      res.write(Buffer.from(value));
+    }
+    res.end();
+  } catch (err) {
+    const abortErr = err as NodeJS.ErrnoException;
+    if (abortErr?.name === "AbortError") return; // client disconnected — routine
+    logger.error({ err, trdekhoUrl }, "adabyssproxy: unexpected error");
+    if (!res.headersSent) res.status(502).end();
+    else res.end();
+  }
+});
+
+router.options("/adabyssproxy", (_req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");

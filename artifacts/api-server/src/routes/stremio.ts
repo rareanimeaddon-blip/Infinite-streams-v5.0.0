@@ -51,8 +51,12 @@ import {
   getEpisodePageIframes,
   getNeoCdnStreams,
   parsePageServers,
+  getAbyssSourcesCached,
+  abyssQualityKey,
   type NeoCdnSource,
+  type AbyssSource,
   decodeId as animeDekhoDecodeId,
+  BASE_URL as AD_BASE_URL,
 } from "../providers/animedekho/animedekho.js";
 import { resolveExtractor, type Stream as ADStream } from "../providers/animedekho/extractors/index.js";
 import { fetchStreamsByTitle as pxpFetchStreamsByTitle, type StreamResult as PxpStreamResult } from "../providers/piratexplay/piratexplay.js";
@@ -1079,6 +1083,26 @@ function adStreamToStremio(s: ADStream, req?: Request): Record<string, unknown> 
     return { name: s.name, title: s.title, url: s.url, behaviorHints: { notWebReady: false } };
   }
 
+  // HydraX (Abyss) stable proxy: "abyss:BASE64URL_TRDEKHO:QUALITYKEY" — re-resolve
+  // (fresh or from the short sliding cache) fresh on every request instead of
+  // handing out a raw CDN url that Abyss blocks after (re)use.
+  if (s.url.startsWith("abyss:")) {
+    const rest = s.url.slice("abyss:".length);
+    const sep = rest.indexOf(":");
+    const t = sep >= 0 ? rest.slice(0, sep) : rest;
+    const k = sep >= 0 ? rest.slice(sep + 1) : "";
+    const base = req ? apiBase(req) : "";
+    if (base && t) {
+      return {
+        name: s.name,
+        title: s.title,
+        url: `${base}/adabyssproxy?u=${t}&k=${encodeURIComponent(k)}`,
+        behaviorHints: { notWebReady: false },
+      };
+    }
+    return { name: s.name, title: s.title, url: s.url, behaviorHints: { notWebReady: false } };
+  }
+
   const isHls = s.type === "hls" || s.url.includes(".m3u8");
   const base = req ? apiBase(req) : "";
 
@@ -1231,12 +1255,35 @@ function neoCdnSourceToStream(src: NeoCdnSource): ADStream[] {
   }];
 }
 
+/**
+ * HydraX (Abyss) stable proxy: like NeoCDN, we never bake a raw resolved CDN
+ * url into the stream list — Abyss links are short-lived/limited-use.
+ * "abyss:BASE64URL_TRDEKHO:QUALITYKEY" encodes the stable trdekho slot URL
+ * (re-derivable any time from term/mediaType/index) plus which quality this
+ * entry represents. adStreamToStremio() rewrites this to /adabyssproxy?u=...&k=...
+ * which re-resolves (fresh or from the short sliding cache) at play time.
+ */
+function abyssSourcesToStreams(trdekhoUrl: string, sources: AbyssSource[]): ADStream[] {
+  const t = Buffer.from(trdekhoUrl).toString("base64url");
+  return sources.map((src, i) => {
+    const key = abyssQualityKey(src, i);
+    const sizeLabel = src.size ? `${(src.size / (1024 * 1024)).toFixed(0)}MB` : "";
+    return {
+      name: "AnimeDekho | HydraX",
+      title: [src.quality, src.codec ? `[${src.codec.toUpperCase()}]` : "", sizeLabel].filter(Boolean).join(" "),
+      url: `abyss:${t}:${key}`,
+      type: "url",
+      behaviorHints: { notWebReady: false },
+    };
+  });
+}
+
 async function collectAnimeDekhoEpisodeStreams(
   episodeUrl: string,
 ): Promise<ADStream[]> {
   // getVidStreamIframes now parses the server button list to return exact trdekho
   // indices present on the page — no more blind 0-24 scanning.
-  const [{ iframes: vidIframes, hasNeocdn: pageHasNeocdn, neoCdnMythUrl, trdekhoIndices }, extraIframes, bodyInfo] = await Promise.all([
+  const [{ iframes: vidIframes, hasNeocdn: pageHasNeocdn, neoCdnMythUrl, trdekhoIndices, hydraxTrdekhoIndex }, extraIframes, bodyInfo] = await Promise.all([
     getVidStreamIframes(episodeUrl),
     getEpisodePageIframes(episodeUrl),
     getBodyTermId(episodeUrl),
@@ -1255,14 +1302,19 @@ async function collectAnimeDekhoEpisodeStreams(
     ? await getNeoCdnStreams(neoCdnMythUrl, episodeUrl)
     : [];
 
-  // Filter HydraX (abyssplayer) from trdekho results
-  const filteredTrdekho = trdekhoIframes.filter(
-    (u) => !u.includes("abyssplayer.com") && !u.includes("abysscdn.com"),
-  );
+  // HydraX (Abyss): re-derive its stable trdekho URL and resolve via the
+  // sliding-cache chain (see getAbyssSourcesCached) instead of resolveExtractor —
+  // Abyss CDN links are short-lived/limited-use and must be minted fresh at play time.
+  const hydraxTrdekhoUrl = (bodyInfo && typeof hydraxTrdekhoIndex === "number")
+    ? `${AD_BASE_URL}/?trdekho=${hydraxTrdekhoIndex}&trid=${bodyInfo.term}&trtype=${bodyInfo.mediaType}`
+    : null;
+  const abyssSources = hydraxTrdekhoUrl
+    ? await getAbyssSourcesCached(hydraxTrdekhoUrl, episodeUrl)
+    : [];
 
-  const allIframes = [...new Set([...vidIframes, ...extraIframes, ...filteredTrdekho])];
+  const allIframes = [...new Set([...vidIframes, ...extraIframes, ...trdekhoIframes])];
   logger.info(
-    { count: allIframes.length, neoCdn: neoCdnSources.length, pageHasNeocdn, trdekhoIndices, episodeUrl },
+    { count: allIframes.length, neoCdn: neoCdnSources.length, hydrax: abyssSources.length, pageHasNeocdn, trdekhoIndices, hydraxTrdekhoIndex, episodeUrl },
     "AnimeDekho: resolving iframes",
   );
   const results = await Promise.allSettled(
@@ -1275,6 +1327,7 @@ async function collectAnimeDekhoEpisodeStreams(
     }
   }
   for (const src of neoCdnSources) streams.push(...neoCdnSourceToStream(src));
+  if (hydraxTrdekhoUrl && abyssSources.length > 0) streams.push(...abyssSourcesToStreams(hydraxTrdekhoUrl, abyssSources));
   return streams;
 }
 
@@ -1285,13 +1338,17 @@ async function collectAnimeDekhoPageStreams(pageUrl: string): Promise<ADStream[]
   // getBodyTermId returns the full page HTML in bodyInfo.text.
   // Parse server buttons from it to get exact trdekho indices and NeoCDN flag —
   // same page-aware approach used for episode pages.
-  const { hasNeocdn, neoCdnMythUrl, trdekhoIndices } = bodyInfo.text
+  const { hasNeocdn, neoCdnMythUrl, trdekhoIndices, hydraxTrdekhoIndex } = bodyInfo.text
     ? parsePageServers(bodyInfo.text)
-    : { hasNeocdn: false, neoCdnMythUrl: null as string | null, trdekhoIndices: [] as number[] };
+    : { hasNeocdn: false, neoCdnMythUrl: null as string | null, trdekhoIndices: [] as number[], hydraxTrdekhoIndex: null as number | null };
 
-  logger.info({ pageUrl, hasNeocdn, neoCdnMythUrl, trdekhoIndices }, "AnimeDekho page servers");
+  logger.info({ pageUrl, hasNeocdn, neoCdnMythUrl, trdekhoIndices, hydraxTrdekhoIndex }, "AnimeDekho page servers");
 
-  const [iframes, neoCdnSources] = await Promise.all([
+  const hydraxTrdekhoUrl = (typeof hydraxTrdekhoIndex === "number")
+    ? `${AD_BASE_URL}/?trdekho=${hydraxTrdekhoIndex}&trid=${bodyInfo.term}&trtype=${bodyInfo.mediaType}`
+    : null;
+
+  const [iframes, neoCdnSources, abyssSources] = await Promise.all([
     trdekhoIndices.length > 0
       ? getTrdekhoIframes(bodyInfo.term, bodyInfo.mediaType, trdekhoIndices)
       : Promise.resolve<string[]>([]),
@@ -1300,13 +1357,14 @@ async function collectAnimeDekhoPageStreams(pageUrl: string): Promise<ADStream[]
     (hasNeocdn && neoCdnMythUrl)
       ? getNeoCdnStreams(neoCdnMythUrl, pageUrl)
       : Promise.resolve<NeoCdnSource[]>([]),
+    // HydraX (Abyss): resolved via the sliding-cache chain, not resolveExtractor —
+    // Abyss CDN links are short-lived/limited-use and must be minted fresh at play time.
+    hydraxTrdekhoUrl
+      ? getAbyssSourcesCached(hydraxTrdekhoUrl, pageUrl)
+      : Promise.resolve<AbyssSource[]>([]),
   ]);
 
-  const filteredIframes = iframes.filter(
-    (u) => !u.includes("abyssplayer.com") && !u.includes("abysscdn.com"),
-  );
-
-  const results = await Promise.allSettled(filteredIframes.map((u) => resolveExtractor(u, pageUrl)));
+  const results = await Promise.allSettled(iframes.map((u) => resolveExtractor(u, pageUrl)));
   const streams: ADStream[] = [];
   for (const r of results) {
     if (r.status === "fulfilled") {
@@ -1314,6 +1372,7 @@ async function collectAnimeDekhoPageStreams(pageUrl: string): Promise<ADStream[]
     }
   }
   for (const src of neoCdnSources) streams.push(...neoCdnSourceToStream(src));
+  if (hydraxTrdekhoUrl && abyssSources.length > 0) streams.push(...abyssSourcesToStreams(hydraxTrdekhoUrl, abyssSources));
   return streams;
 }
 

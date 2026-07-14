@@ -2,7 +2,7 @@ import * as cheerio from "cheerio";
 import { fetchDoc, fetchText } from "../../utils/fetch.js";
 import { logger } from "../../lib/logger.js";
 
-const BASE_URL = "https://animedekho.app";
+export const BASE_URL = "https://animedekho.app";
 
 export interface SearchResult {
   id: string;
@@ -480,11 +480,12 @@ function decodeServerButtons(html: string): Array<{ url: string; name: string }>
  * trdekho=1 for Shinchan). Using a hardcoded trdekho=1 breaks NeoCDN for any show
  * where HydraX is mapped to a different slot.
  */
-export function parsePageServers(html: string): { hasNeocdn: boolean; neoCdnMythUrl: string | null; trdekhoIndices: number[] } {
+export function parsePageServers(html: string): { hasNeocdn: boolean; neoCdnMythUrl: string | null; trdekhoIndices: number[]; hydraxTrdekhoIndex: number | null } {
   const buttons = decodeServerButtons(html);
   let hasNeocdn = false;
   let neoCdnMythUrl: string | null = null;
   const trdekhoIndices: number[] = [];
+  let hydraxTrdekhoIndex: number | null = null;
   for (const { url, name } of buttons) {
     if (url.includes("/aaa/myth/play.php")) {
       hasNeocdn = true;
@@ -492,17 +493,27 @@ export function parsePageServers(html: string): { hasNeocdn: boolean; neoCdnMyth
       continue;
     }
     const lname = name.toLowerCase();
-    if (url.includes("abyssplayer.com") || url.includes("abysscdn.com") || lname.includes("hydrax") || lname.includes("abyss")) continue;
+    // HydraX (AnimeDekho's label for the Abyss player) is special-cased like NeoCDN:
+    // its trdekho slot is kept out of the generic trdekhoIndices list and resolved
+    // separately (see getAbyssSourcesCached) because Abyss CDN links are short-lived /
+    // limited-use and must be re-derived fresh at play time, not cached like other servers.
+    if (lname.includes("hydrax") || lname.includes("abyss")) {
+      if (url.includes("?trdekho=")) {
+        const m = url.match(/[?&]trdekho=(\d+)/);
+        if (m) hydraxTrdekhoIndex = parseInt(m[1]!, 10);
+      }
+      continue;
+    }
     if (url.includes("?trdekho=")) {
       const m = url.match(/[?&]trdekho=(\d+)/);
       if (m) trdekhoIndices.push(parseInt(m[1]!, 10));
     }
   }
-  return { hasNeocdn, neoCdnMythUrl, trdekhoIndices };
+  return { hasNeocdn, neoCdnMythUrl, trdekhoIndices, hydraxTrdekhoIndex };
 }
 
-export async function getVidStreamIframes(episodeUrl: string): Promise<{ iframes: string[]; hasNeocdn: boolean; neoCdnMythUrl: string | null; trdekhoIndices: number[] }> {
-  const empty = { iframes: [] as string[], hasNeocdn: false, neoCdnMythUrl: null as string | null, trdekhoIndices: [] as number[] };
+export async function getVidStreamIframes(episodeUrl: string): Promise<{ iframes: string[]; hasNeocdn: boolean; neoCdnMythUrl: string | null; trdekhoIndices: number[]; hydraxTrdekhoIndex: number | null }> {
+  const empty = { iframes: [] as string[], hasNeocdn: false, neoCdnMythUrl: null as string | null, trdekhoIndices: [] as number[], hydraxTrdekhoIndex: null as number | null };
   try {
     const html = await fetchText(episodeUrl, { timeout: 7000, headers: { Cookie: "toronites_server=vidstream" } });
     const $ = cheerio.load(html);
@@ -521,14 +532,15 @@ export async function getVidStreamIframes(episodeUrl: string): Promise<{ iframes
     // We use this to build the exact trdekho= index list and detect NeoCDN,
     // instead of blindly scanning trdekho=0..24 (which causes wrong CDN content
     // from slots that don't exist for this episode).
-    const { hasNeocdn, neoCdnMythUrl, trdekhoIndices } = parsePageServers(html);
+    const { hasNeocdn, neoCdnMythUrl, trdekhoIndices, hydraxTrdekhoIndex } = parsePageServers(html);
     const serverButtons = decodeServerButtons(html);
     logger.info(
-      { episodeUrl, servers: serverButtons.map((s) => s.name), trdekhoIndices, hasNeocdn, neoCdnMythUrl },
+      { episodeUrl, servers: serverButtons.map((s) => s.name), trdekhoIndices, hasNeocdn, neoCdnMythUrl, hydraxTrdekhoIndex },
       "AnimeDekho: page server buttons",
     );
 
-    // Add non-trdekho, non-NeoCDN embed URLs from the server button list
+    // Add non-trdekho, non-NeoCDN, non-HydraX embed URLs from the server button list.
+    // HydraX (Abyss) is handled separately via hydraxTrdekhoIndex + getAbyssSourcesCached.
     for (const { url, name } of serverButtons) {
       if (seen.has(url)) continue;
       if (url.includes("/aaa/myth/play.php")) continue; // NeoCDN: handled by getNeoCdnStreams
@@ -561,7 +573,7 @@ export async function getVidStreamIframes(episodeUrl: string): Promise<{ iframes
         }
       } catch (err) { logger.debug({ providerUrl, err }, "VidStream provider fetch error"); }
     }));
-    return { iframes: innerIframes, hasNeocdn, neoCdnMythUrl, trdekhoIndices };
+    return { iframes: innerIframes, hasNeocdn, neoCdnMythUrl, trdekhoIndices, hydraxTrdekhoIndex };
   } catch (err) { logger.error({ episodeUrl, err }, "getVidStreamIframes error"); return empty; }
 }
 
@@ -717,6 +729,145 @@ export async function getNeoCdnStreams(
     logger.warn({ mythUrl, err }, "getNeoCdnStreams error");
     return [];
   }
+}
+
+// ─── HydraX (Abyss player) ──────────────────────────────────────────────────
+//
+// AnimeDekho labels this server "HydraX" — it's the site's name for the Abyss
+// player (abyssplayer.com / abysscdn.com). Getting a playable link requires:
+//   1. Fetch the HydraX trdekho slot — returns a page with an <iframe src>
+//      pointing at abyssplayer.com/<id>.
+//   2. Fetch that abyssplayer.com page pretending to come from playhydrax.com
+//      (Origin/Referer headers) and pull `const datas = "..."` out of its
+//      inline scripts — an encrypted blob.
+//   3. POST that blob to the public https://enc-dec.app/api/dec-abyss decrypt
+//      service, which returns the real source list.
+//
+// Abyss CDN links appear to be short-lived / limited-use (reused links get
+// blocked), so we never cache the final CDN url long-term. Instead we cache
+// the whole resolved source list for a short, sliding TTL keyed by the
+// (stable, re-derivable) trdekho URL: repeat requests during one continuous
+// playback session reuse the same resolved links, but once requests stop for
+// CACHE_TTL_MS the entry goes cold and the next request re-runs the entire
+// chain from scratch, minting brand new links.
+
+export interface AbyssSource {
+  name: string;
+  url: string;
+  quality: string;
+  codec: string;
+  size: number;
+}
+
+const ABYSS_HEADERS: Record<string, string> = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  Origin: "https://playhydrax.com",
+  Referer: "https://playhydrax.com/",
+};
+
+interface AbyssCacheEntry { sources: AbyssSource[]; expires: number; }
+const abyssCache = new Map<string, AbyssCacheEntry>();
+const ABYSS_CACHE_TTL_MS = 60_000;
+
+function abyssQualityFromType(type: string): string {
+  const m = type.match(/(\d{3,4})p?/i);
+  return m ? `${m[1]}p` : (type || "Unknown");
+}
+
+/** Stable-ish key used to re-locate "the same" quality on a later, fresh resolve. */
+export function abyssQualityKey(source: AbyssSource, index: number): string {
+  const safeQuality = source.quality.replace(/[^a-zA-Z0-9]/g, "");
+  const safeCodec = (source.codec || "unknown").replace(/[^a-zA-Z0-9]/g, "");
+  return `${safeQuality}-${safeCodec}-${index}`;
+}
+
+export function pickAbyssSourceByKey(sources: AbyssSource[], key: string): AbyssSource | null {
+  const exact = sources.find((s, i) => abyssQualityKey(s, i) === key);
+  if (exact) return exact;
+  // Fresh resolves can shuffle order/count slightly; fall back to matching
+  // just the quality label before giving up.
+  const [qualityPart] = key.split("-");
+  const sameQuality = sources.find((s) => s.quality.replace(/[^a-zA-Z0-9]/g, "") === qualityPart);
+  return sameQuality ?? sources[0] ?? null;
+}
+
+/**
+ * Runs the entire HydraX -> Abyss resolution chain from scratch: fetches the
+ * trdekho slot, follows its iframe to the abyssplayer.com embed, extracts the
+ * encrypted `datas` blob, and decrypts it via enc-dec.app.
+ */
+async function resolveFreshAbyssSources(trdekhoUrl: string, referer: string): Promise<AbyssSource[]> {
+  try {
+    const $ = await fetchDoc(trdekhoUrl, {
+      timeout: 8000,
+      headers: { Cookie: "toronites_server=vidstream", Referer: referer },
+    });
+    let embedUrl = $("iframe[src]").first().attr("src")?.trim();
+    if (embedUrl?.startsWith("//")) embedUrl = "https:" + embedUrl;
+    if (!embedUrl || !embedUrl.startsWith("http")) {
+      logger.warn({ trdekhoUrl }, "resolveFreshAbyssSources: no embed iframe found on trdekho slot");
+      return [];
+    }
+
+    const html = await fetchText(embedUrl, { timeout: 10000, headers: ABYSS_HEADERS });
+    const $embed = cheerio.load(html);
+    const scripts = $embed("script").map((_, el) => $embed(el).html() || "").get().join("\n");
+    const match = scripts.match(/const\s+datas\s*=\s*"([^"]*)"/);
+    if (!match?.[1]) {
+      logger.warn({ embedUrl }, "resolveFreshAbyssSources: no encrypted datas blob found");
+      return [];
+    }
+
+    const decRes = await fetch("https://enc-dec.app/api/dec-abyss", {
+      method: "POST",
+      headers: { ...ABYSS_HEADERS, "Content-Type": "application/json" },
+      body: JSON.stringify({ text: match[1] }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!decRes.ok) {
+      logger.warn({ embedUrl, status: decRes.status }, "resolveFreshAbyssSources: enc-dec.app request failed");
+      return [];
+    }
+    const decoded = (await decRes.json()) as {
+      result?: { sources?: Array<{ url: string; size: number; type: string; codec: string; status: boolean }> };
+    };
+    const sources = decoded?.result?.sources ?? [];
+    const streams = sources
+      .filter((s) => s.status && s.url)
+      .map((s) => ({
+        name: `HydraX [${(s.codec || "").toUpperCase()}]`,
+        url: s.url,
+        quality: abyssQualityFromType(s.type),
+        codec: s.codec,
+        size: s.size,
+      }));
+    logger.info({ trdekhoUrl, embedUrl, count: streams.length }, "resolveFreshAbyssSources: success");
+    return streams;
+  } catch (err) {
+    logger.warn({ trdekhoUrl, err }, "resolveFreshAbyssSources error");
+    return [];
+  }
+}
+
+/**
+ * Returns HydraX/Abyss sources for the given trdekho URL, reusing a resolved
+ * result for up to ABYSS_CACHE_TTL_MS of continuous activity (sliding window),
+ * and re-running the full resolution chain from scratch once that goes cold.
+ */
+export async function getAbyssSourcesCached(trdekhoUrl: string, referer: string): Promise<AbyssSource[]> {
+  const now = Date.now();
+  const cached = abyssCache.get(trdekhoUrl);
+  if (cached && cached.expires > now) {
+    cached.expires = now + ABYSS_CACHE_TTL_MS; // slide the window forward
+    return cached.sources;
+  }
+  const sources = await resolveFreshAbyssSources(trdekhoUrl, referer);
+  if (sources.length > 0) {
+    abyssCache.set(trdekhoUrl, { sources, expires: now + ABYSS_CACHE_TTL_MS });
+  } else {
+    abyssCache.delete(trdekhoUrl);
+  }
+  return sources;
 }
 
 export async function getEpisodePageIframes(episodeUrl: string): Promise<string[]> {
