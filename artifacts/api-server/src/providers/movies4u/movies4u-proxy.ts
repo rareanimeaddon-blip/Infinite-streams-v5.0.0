@@ -1,12 +1,65 @@
 import { Router, type Request, type Response } from "express";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { logger } from "../../lib/logger.js";
 import { logDebug } from "../../lib/debug-log.js";
 
 const router = Router();
+const execFileAsync = promisify(execFile);
 
 const UPSTREAM_UA =
   "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 " +
   "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
+
+// gdlink.dev / gdflix.* sit behind Cloudflare with TLS-fingerprint (JA3/JA4)
+// bot detection: Node's native `fetch` (undici) and `axios` both get a flat
+// 403 from Cloudflare on these hosts, while curl (OpenSSL's TLS stack, a much
+// more "browser-shaped" fingerprint) passes every time with identical headers.
+// This is not a header/UA problem — confirmed by testing identical headers
+// through fetch (403) vs curl (200) back-to-back against the same URL.
+//
+// Fix: shell out to curl for the initial GDFlix/GDLink page fetch specifically.
+// Falls back to returning null (→ the existing 502 path) if curl is ever
+// unavailable, so this can never make things worse than before.
+const DESKTOP_UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+  "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+
+async function curlFetchText(
+  url: string,
+  headers: Record<string, string>,
+  timeoutSec = 12,
+): Promise<{ status: number; finalUrl: string; body: string } | null> {
+  const marker = "__CURL_META__";
+  const headerArgs: string[] = [];
+  for (const [k, v] of Object.entries(headers)) headerArgs.push("-H", `${k}: ${v}`);
+  try {
+    const { stdout } = await execFileAsync(
+      "curl",
+      [
+        "-s", "-L",
+        "--max-time", String(timeoutSec),
+        "-w", `\n${marker}%{http_code}|%{url_effective}`,
+        ...headerArgs,
+        url,
+      ],
+      { maxBuffer: 32 * 1024 * 1024, timeout: (timeoutSec + 3) * 1000 },
+    );
+    const idx = stdout.lastIndexOf(`\n${marker}`);
+    if (idx === -1) return null;
+    const body = stdout.slice(0, idx);
+    const meta = stdout.slice(idx + marker.length + 1);
+    const sep = meta.indexOf("|");
+    if (sep === -1) return null;
+    const status = Number(meta.slice(0, sep));
+    const finalUrl = meta.slice(sep + 1).trim() || url;
+    if (!Number.isFinite(status)) return null;
+    return { status, finalUrl, body };
+  } catch (e) {
+    logger.warn({ err: e, url: url.slice(0, 80) }, "curlFetchText: curl invocation failed");
+    return null;
+  }
+}
 
 export function encodeParam(s: string): string {
   return Buffer.from(s, "utf8").toString("base64url");
@@ -477,16 +530,20 @@ async function followFoxcloudChain(foxUrl: string, referer: string): Promise<str
  */
 async function resolveGdflixChain(gdflixUrl: string): Promise<string | null> {
   try {
-    const res = await fetch(gdflixUrl, {
-      headers: { "User-Agent": UPSTREAM_UA, Referer: "https://m4ulinks.site/" },
-      signal: AbortSignal.timeout(12_000),
-      redirect: "follow",
-    });
-    if (!res.ok) {
-      logger.warn({ status: res.status, url: gdflixUrl.slice(0, 80) }, "GDFlix proxy: page fetch failed");
+    // Use curl, not native fetch/axios: Cloudflare 403s Node's TLS fingerprint
+    // on gdlink.dev/gdflix.* even with identical headers (see curlFetchText doc).
+    const curlRes = await curlFetchText(gdflixUrl, {
+      "User-Agent": DESKTOP_UA,
+      Referer: "https://m4ulinks.site/",
+    }, 12);
+    if (!curlRes || curlRes.status < 200 || curlRes.status >= 400) {
+      logger.warn(
+        { status: curlRes?.status, url: gdflixUrl.slice(0, 80) },
+        "GDFlix proxy: page fetch failed",
+      );
       return null;
     }
-    const html = await res.text();
+    const html = curlRes.body;
 
     // Priority 1: Pixeldrain — direct streaming API, zero extra hops.
     const pdMatch = html.match(/href="https?:\/\/pixeldrain\.(?:com|dev)\/u\/([A-Za-z0-9]+)"/);

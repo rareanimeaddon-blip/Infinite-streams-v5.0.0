@@ -34,7 +34,10 @@ RUN pnpm --filter @workspace/api-server run build
 FROM node:24-alpine AS runner
 
 # tini ensures proper PID-1 behaviour: forwards signals and reaps zombies.
-RUN apk add --no-cache tini
+# curl is required at runtime: gdlink.dev/gdflix.* sit behind Cloudflare
+# TLS-fingerprint bot detection that blocks Node's native fetch/axios (403)
+# but passes curl — see movies4u-proxy.ts's curlFetchText().
+RUN apk add --no-cache tini curl
 
 # ── Runtime defaults (override with -e or docker-compose environment:) ────────
 ENV NODE_ENV=production

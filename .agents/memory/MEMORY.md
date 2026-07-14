@@ -12,3 +12,4 @@
 - [HubCloud/HubDrive archive-only links](hubcloud-archive-links.md) — season packs sometimes resolve to a single .zip/.rar, not a playable file; must be filtered post-resolve, not treated as a stream.
 - [AnimeDekho slow search endpoint](animedekho-slow-search.md) — popular/broad queries can take 15-25s server-side; shared 10s fetch default silently drops real results as "no match".
 - [AnimeDekho HydraX/Abyss integration](animedekho-hydrax-abyss.md) — Abyss CDN 404s if the final byte-fetch includes an Origin header (only needed on the embed page); special-cased proxy design mirrors NeoCDN.
+- [Cloudflare TLS-fingerprint block on fetch/axios](cloudflare-tls-fingerprint-block.md) — some CF hosts (gdlink.dev/gdflix.*) 403 Node fetch/axios but pass curl w/ identical headers; shell out to curl, not a header fix.
