@@ -334,7 +334,7 @@ router.get("/debug/health/data", async (req, res) => {
       { timeout: 40000 },
     ),
     axios.get<{ streams: { name?: string }[] }>(
-      `${base}/stream/series/tt0388629%3A1%3A1.json`,  // One Piece S01E01
+      `${base}/stream/series/tt12853970%3A1%3A2.json`, // Shin Chan S01E02
       { timeout: 40000 },
     ),
   ]);
@@ -573,8 +573,8 @@ body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,
       </div>
       <div class="test-row">
         <span class="test-badge anime">Anime</span>
-        <span class="test-name">One Piece S01E01</span>
-        <span class="test-id">tt0388629:1:1</span>
+        <span class="test-name">Shin Chan S01E02</span>
+        <span class="test-id">tt12853970:1:2</span>
         <span class="test-count" id="tc-anime">—</span>
       </div>
     </div>
