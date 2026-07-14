@@ -326,7 +326,7 @@ router.get("/debug/health/data", async (req, res) => {
   const t0 = Date.now();
   const [movieR, seriesR, animeR] = await Promise.allSettled([
     axios.get<{ streams: { name?: string }[] }>(
-      `${base}/stream/movie/tt1375666.json`,   // Inception
+      `${base}/stream/movie/tt12042730.json`,  // Project Hail Mary
       { timeout: 40000 },
     ),
     axios.get<{ streams: { name?: string }[] }>(
@@ -561,8 +561,8 @@ body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,
     <div class="test-list">
       <div class="test-row">
         <span class="test-badge movie">Movie</span>
-        <span class="test-name">Inception (2010)</span>
-        <span class="test-id">tt1375666</span>
+        <span class="test-name">Project Hail Mary (2026)</span>
+        <span class="test-id">tt12042730</span>
         <span class="test-count" id="tc-movie">—</span>
       </div>
       <div class="test-row">
