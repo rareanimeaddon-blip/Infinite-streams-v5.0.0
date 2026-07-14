@@ -276,21 +276,33 @@ interface ProbeResult {
   probeMs: number;
 }
 
+// IMPORTANT: keep this in sync with PROVIDER_LIST (lib/provider-config.ts) — every
+// provider must have an entry here, matching the exact `name`/`title` string it sets
+// on its stream objects (see each provider's stream-building code), or the health
+// check will always report it as "fail" even when it's actually returning streams.
 const PROVIDER_PATTERNS: Record<string, RegExp> = {
+  kartoons:     /Kartoons/i,
   animesalt:    /AnimeSalt/i,
   rareanime:    /RareAnime/i,
   animedekho:   /AnimeDekho/i,
+  piratexplay:  /PirateXPlay/i,
   netmirror:    /NetMirror/i,
   streamflix:   /StreamFlix/i,
+  dooflix:      /DooFlix/i,
   castletv:     /CastleTV/i,
+  onetouchtv:   /OneTouchTV/i,
+  vidlink:      /VidLink/i,
+  moviebox:     /MovieBox/i,
+  meowtv:       /MeowTV/i,
+  vidsrc:       /VidSrc/i,
+  moviesdrive:  /MoviesDrive/i,
   hdghartv:     /HDGharTV/i,
   vaplayer:     /VaPlayer/i,
   cinefreak:    /CineFreak/i,
   hindmovies:   /HindMoviez/i,
   movies4u:     /Movies4u/i,
-  moviebox:     /MovieBox/i,
-  hdhub4u:      /HDHub4U/i,
   fourkdhub:    /4KHDHub/i,
+  hdhub4u:      /HDHub4U/i,
 };
 
 function countByProvider(streams: { name?: string }[]): Map<string, number> {
@@ -358,21 +370,32 @@ router.get("/debug/health/data", async (req, res) => {
 // ─── Health check HTML page ──────────────────────────────────────────────────
 
 router.get("/debug/health", (_req, res) => {
+  // IMPORTANT: keep this in sync with PROVIDER_LIST (lib/provider-config.ts) — any
+  // provider missing here still renders (via the fallback below) but with a generic
+  // icon/label, so add new providers as they're added to PROVIDER_LIST.
   const providerMeta: Record<string, { emoji: string; label: string; types: string }> = {
+    kartoons:     { emoji: "🎌",  label: "Kartoons",      types: "Anime" },
     animesalt:    { emoji: "⛩️",  label: "AnimeSalt",     types: "Anime" },
     rareanime:    { emoji: "🌙",  label: "RareAnime",     types: "Anime" },
     animedekho:   { emoji: "🇮🇳", label: "AnimeDekho",    types: "Anime" },
+    piratexplay:  { emoji: "☠️",  label: "PirateXPlay",   types: "Movies · Series" },
     netmirror:    { emoji: "🌐",  label: "NetMirror",     types: "Movies · Series" },
     streamflix:   { emoji: "🎬",  label: "StreamFlix",    types: "Movies · Series" },
+    dooflix:      { emoji: "🎥",  label: "DooFlix",       types: "Movies · Series" },
     castletv:     { emoji: "🏰",  label: "CastleTV",      types: "Movies · Series" },
+    onetouchtv:   { emoji: "📺",  label: "OneTouchTV",    types: "Movies · Series" },
+    vidlink:      { emoji: "🔗",  label: "VidLink",       types: "Movies · Series" },
+    moviebox:     { emoji: "🍿",  label: "MovieBox",      types: "Movies · Series" },
+    meowtv:       { emoji: "🐱",  label: "MeowTV",        types: "Movies · Series" },
+    vidsrc:       { emoji: "📽️", label: "VidSrc",        types: "Movies · Series" },
+    moviesdrive:  { emoji: "🚗",  label: "MoviesDrive",   types: "Movies · Series" },
     hdghartv:     { emoji: "🏚️", label: "HDGharTV",      types: "Movies · Series" },
     vaplayer:     { emoji: "🎮",  label: "VaPlayer",      types: "Movies · Series" },
     cinefreak:    { emoji: "🧊",  label: "CineFreak",     types: "Movies · Series" },
     hindmovies:   { emoji: "🎞️", label: "HindMoviez",    types: "Movies · Series" },
     movies4u:     { emoji: "📀",  label: "Movies4u",      types: "Movies · Series" },
-    moviebox:     { emoji: "🍿",  label: "MovieBox",      types: "Movies · Series" },
-    hdhub4u:      { emoji: "📡",  label: "HDHub4U",       types: "Movies · Series" },
     fourkdhub:    { emoji: "🔵",  label: "4KHDHub",       types: "Movies · Series" },
+    hdhub4u:      { emoji: "📡",  label: "HDHub4U",       types: "Movies · Series" },
   };
 
   const cards = PROVIDER_LIST.map((p) => {
@@ -508,7 +531,7 @@ body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,
   <div class="hero">
     <div class="hero-left">
       <h1>Provider Health Check</h1>
-      <p>Probes all 12 providers with real test titles — a movie, a series, and an anime. Streams are attributed to each provider and shown below.</p>
+      <p>Probes all ${PROVIDER_LIST.length} providers with real test titles — a movie, a series, and an anime. Streams are attributed to each provider and shown below.</p>
     </div>
     <div class="hero-right">
       <button class="run-btn" id="runBtn" onclick="runCheck()">
@@ -575,7 +598,7 @@ async function runCheck() {
   btn.disabled = true;
   root.classList.add('running');
   fill.style.width = '5%';
-  lbl.textContent = 'Sending probes to all 12 providers…';
+  lbl.textContent = 'Sending probes to all ${PROVIDER_LIST.length} providers…';
 
   // reset cards
   document.querySelectorAll('.card').forEach(c => {
@@ -636,12 +659,12 @@ async function runCheck() {
     }
 
     document.getElementById('stat-total').textContent = totalStreams;
-    document.getElementById('stat-ok').textContent   = okCount + ' / 11';
+    document.getElementById('stat-ok').textContent   = okCount + ' / ${PROVIDER_LIST.length}';
     document.getElementById('stat-fail').textContent  = failCount;
     document.getElementById('stat-time').textContent  = (data.probeMs / 1000).toFixed(1) + 's';
     document.getElementById('ts').textContent = 'Last checked: ' + new Date(data.checkedAt).toLocaleString();
 
-    lbl.textContent = 'Done — ' + okCount + ' of 12 providers returned streams.';
+    lbl.textContent = 'Done — ' + okCount + ' of ${PROVIDER_LIST.length} providers returned streams.';
     setTimeout(() => root.classList.remove('running'), 600);
 
   } catch (e) {
