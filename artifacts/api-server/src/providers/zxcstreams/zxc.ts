@@ -79,20 +79,11 @@ let _base = INITIAL_BASE;
 let _baseValidatedAt = 0;
 
 /**
- * Probe a single candidate subdomain. Returns the full base URL if the server
- * responds (any HTTP status counts — even 4xx means it's alive), throws otherwise.
+ * Probe a single candidate subdomain. Returns the full base URL only if the
+ * token endpoint responds with a valid token — reachability alone is not enough.
  */
 async function probeSubdomain(sub: string): Promise<string> {
-  const url = `https://${sub}.zxcstream.xyz`;
-  const r = await fetch(`${url}/backend/token`, {
-    method: "POST",
-    headers: { ...COMMON_HEADERS, "Content-Type": "application/json" },
-    body: "{}",
-    signal: AbortSignal.timeout(6000),
-  });
-  // Any HTTP response (including 4xx/5xx) means the host is reachable
-  if (r.status > 0) return url;
-  throw new Error("no response");
+  return verifyBase(`https://${sub}.zxcstream.xyz`);
 }
 
 /**
