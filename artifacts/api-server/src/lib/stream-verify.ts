@@ -136,7 +136,7 @@ export const PROVIDER_VERIFY_REPORT = {
   },
   providers: {
     imdbVerified: {
-      providers: ["AnimeSalt", "DooFlix", "MeowTV", "HindMoviez", "NetMirror", "VaPlayer", "Movies4u"],
+      providers: ["AnimeSalt", "DooFlix", "MeowTV", "HindMoviez", "VaPlayer"],
       note: "These providers receive the exact IMDb ID for lookup. They get +20 trust boost. Stream objects contain quality/server metadata only — no embedded content titles. Title/type mismatches at the provider backend cannot be detected from stream objects alone.",
     },
     tmdbVerified: {
@@ -154,10 +154,6 @@ export const PROVIDER_VERIFY_REPORT = {
     limitationsNotes: {
       HindMoviez:
         "Uses IMDb ID scraper. Stream name/title fields contain only quality and server info — title-level mismatch cannot be detected from stream objects alone.",
-      NetMirror:
-        "Uses IMDb/TMDB ID. Season+episode numbers are present in the API response but not surfaced in stream objects. Episode-level mismatch detection relies on stream text parsing only.",
-      Movies4u:
-        "Resolves TMDB metadata internally from the IMDb ID and matches article titles via substring search on movies4u.clinic — the requested IMDb ID is trusted, but the matched article/quality could theoretically be wrong-title if the site mislabels a post.",
     },
   },
 } as const;

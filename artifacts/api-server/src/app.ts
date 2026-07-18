@@ -63,9 +63,9 @@ function serveLandingPage(req: express.Request, res: express.Response) {
   const stremioUrl = defaultManifestUrl.replace(/^https?:\/\//, "stremio://");
 
   // Provider order MUST match PROVIDER_LIST in lib/provider-config.ts
-  // 0=kartoons 1=animesalt 2=rareanime 3=animedekho 4=piratexplay 5=netmirror 6=streamflix
-  // 7=dooflix 8=castletv 9=onetouchtv 10=vidlink 11=moviebox 12=meowtv 13=vidsrc 14=moviesdrive
-  // 15=hdghartv 16=vaplayer 17=cinefreak 18=hindmovies 19=movies4u 20=fourkdhub 21=hdhub4u
+  // 0=kartoons 1=animesalt 2=rareanime 3=animedekho 4=piratexplay 5=streamflix
+  // 6=dooflix 7=castletv 8=onetouchtv 9=vidlink 10=moviebox 11=meowtv 12=vidsrc 13=moviesdrive
+  // 14=hdghartv 15=vaplayer 16=cinefreak 17=hindmovies 18=fourkdhub 19=hdhub4u
   const providers: Array<{
     key: string;
     name: string;
@@ -124,16 +124,6 @@ function serveLandingPage(req: express.Request, res: express.Response) {
       glow: "rgba(234,179,8,0.25)",
       tags: ["TMDB Slugs", "Movies & Series", "Referer-Gated"],
       desc: "TMDB-slug based streams from piratexplay.cc with season/episode navigation and referer-gated episode pages.",
-      category: "movies",
-    },
-    {
-      key: "netmirror",
-      name: "NetMirror",
-      emoji: "🌐",
-      color: "#06b6d4",
-      glow: "rgba(6,182,212,0.25)",
-      tags: ["Netflix", "Prime", "Hotstar", "1080p"],
-      desc: "1080p mirror streams from Netflix, Prime Video & Hotstar with no geo-restrictions.",
       category: "movies",
     },
     {
@@ -267,16 +257,6 @@ function serveLandingPage(req: express.Request, res: express.Response) {
       category: "movies",
     },
     {
-      key: "movies4u",
-      name: "Movies4u",
-      emoji: "📀",
-      color: "#f97316",
-      glow: "rgba(249,115,22,0.25)",
-      tags: ["1080p", "4K", "GDFlix", "HubCloud"],
-      desc: "IMDB-resolved movies and series scraped from Movies4u with pre-resolved GDFlix/HubCloud CDN links.",
-      category: "movies",
-    },
-    {
       key: "fourkdhub",
       name: "4KHDHub",
       emoji: "🔵",
@@ -345,7 +325,7 @@ function serveLandingPage(req: express.Request, res: express.Response) {
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<meta name="description" content="INFINITE STREAMS — 22 providers, one addon. Kartoons, AnimeSalt, RareAnime, AnimeDekho, PirateXPlay, NetMirror, StreamFlix, DooFlix, CastleTV, OneTouchTV, VidLink, MovieBox, MeowTV, VidSrc, MoviesDrive, HDGharTV, VaPlayer, CineFreak, HindMoviez, Movies4u, 4KHDHub, HDHub4U. Install in one click."/>
+<meta name="description" content="INFINITE STREAMS — 20 providers, one addon. Kartoons, AnimeSalt, RareAnime, AnimeDekho, PirateXPlay, StreamFlix, DooFlix, CastleTV, OneTouchTV, VidLink, MovieBox, MeowTV, VidSrc, MoviesDrive, HDGharTV, VaPlayer, CineFreak, HindMoviez, 4KHDHub, HDHub4U. Install in one click."/>
 <title>INFINITE STREAMS — Stremio Addon</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300..900;1,14..32,300..900&display=swap" rel="stylesheet"/>

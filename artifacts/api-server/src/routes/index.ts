@@ -1,13 +1,11 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health.js";
 import proxyRouter from "./proxy.js";
-import netmirrorProxyRouter from "../providers/netmirror/netmirror-proxy.js";
 import raProxyRouter from "../providers/rareanime/rareanime-proxy.js";
 import meowtvProxyRouter from "../providers/meowtv/meowtv-proxy.js";
 import vidsrcProxyRouter from "../providers/vidsrc/vidsrc-proxy.js";
 import animesaltProxyRouter from "../providers/animesalt/animesalt-proxy.js";
 import hindmoviesProxyRouter from "../providers/hindmovies/hindmovies-proxy.js";
-import movies4uProxyRouter from "../providers/movies4u/movies4u-proxy.js";
 import kartoonsProxyRouter from "../providers/kartoons/kartoons-proxy.js";
 import animedekhoProxyRouter from "../providers/animedekho/animedekho-proxy.js";
 import vidlinkProxyRouter from "../providers/vidlink/vidlink-proxy.js";
@@ -25,12 +23,10 @@ router.use(debugRouter);
 // Folder-isolation convention: each provider's proxy lives in its own folder.
 router.use(animesaltProxyRouter);
 router.use(hindmoviesProxyRouter);
-router.use(movies4uProxyRouter);
 router.use(kartoonsProxyRouter);
 router.use(animedekhoProxyRouter);
 router.use(vidlinkProxyRouter);
 router.use(movieboxProxyRouter);
-router.use(netmirrorProxyRouter);
 router.use(raProxyRouter);
 router.use(meowtvProxyRouter);
 router.use(vidsrcProxyRouter);
