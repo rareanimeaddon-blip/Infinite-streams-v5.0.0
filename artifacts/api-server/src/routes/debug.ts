@@ -302,6 +302,7 @@ const PROVIDER_PATTERNS: Record<string, RegExp> = {
   fourkdhub:    /4KHDHub/i,
   hdhub4u:      /HDHub4U/i,
   netmirror:    /NetMirror/i,
+  zxcstreams:   /ZXCStream/i,
 };
 
 function countByProvider(streams: { name?: string }[]): Map<string, number> {
@@ -319,7 +320,7 @@ function countByProvider(streams: { name?: string }[]): Map<string, number> {
 }
 
 router.get("/debug/health/data", async (req, res) => {
-  const port = process.env["PORT"] ?? "10000";
+  const port = process.env["PORT"] ?? "8080";
   const base = `http://localhost:${port}${BASE_PATH}`;
 
   const t0 = Date.now();

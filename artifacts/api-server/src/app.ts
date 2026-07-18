@@ -65,7 +65,7 @@ function serveLandingPage(req: express.Request, res: express.Response) {
   // Provider order MUST match PROVIDER_LIST in lib/provider-config.ts
   // 0=kartoons 1=animesalt 2=rareanime 3=animedekho 4=piratexplay 5=streamflix
   // 6=dooflix 7=castletv 8=onetouchtv 9=vidlink 10=moviebox 11=meowtv 12=vidsrc 13=moviesdrive
-  // 14=hdghartv 15=vaplayer 16=cinefreak 17=hindmovies 18=fourkdhub 19=hdhub4u 20=netmirror
+  // 14=hdghartv 15=vaplayer 16=cinefreak 17=hindmovies 18=fourkdhub 19=hdhub4u 20=netmirror 21=zxcstreams
   const providers: Array<{
     key: string;
     name: string;
@@ -286,6 +286,16 @@ function serveLandingPage(req: express.Request, res: express.Response) {
       desc: "1080p mirror streams from Netflix, Prime Video & Hotstar with no geo-restrictions.",
       category: "movies",
     },
+    {
+      key: "zxcstreams",
+      name: "ZXCStreams",
+      emoji: "⚡",
+      color: "#f97316",
+      glow: "rgba(249,115,22,0.25)",
+      tags: ["Multi-Server", "MP4", "HLS", "Auto-Discovery"],
+      desc: "Multi-server streams from zxcstream.xyz (Icarus, Berkas, Orion, Athena) with auto-discovery of the live backend domain.",
+      category: "movies",
+    },
   ];
 
   const providerCards = providers
@@ -335,7 +345,7 @@ function serveLandingPage(req: express.Request, res: express.Response) {
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<meta name="description" content="INFINITE STREAMS — 21 providers, one addon. Kartoons, AnimeSalt, RareAnime, AnimeDekho, PirateXPlay, StreamFlix, DooFlix, CastleTV, OneTouchTV, VidLink, MovieBox, MeowTV, VidSrc, MoviesDrive, HDGharTV, VaPlayer, CineFreak, HindMoviez, 4KHDHub, HDHub4U, NetMirror. Install in one click."/>
+<meta name="description" content="INFINITE STREAMS — 22 providers, one addon. Kartoons, AnimeSalt, RareAnime, AnimeDekho, PirateXPlay, StreamFlix, DooFlix, CastleTV, OneTouchTV, VidLink, MovieBox, MeowTV, VidSrc, MoviesDrive, HDGharTV, VaPlayer, CineFreak, HindMoviez, 4KHDHub, HDHub4U, NetMirror, ZXCStreams. Install in one click."/>
 <title>INFINITE STREAMS — Stremio Addon</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300..900;1,14..32,300..900&display=swap" rel="stylesheet"/>
@@ -608,13 +618,13 @@ footer{border-top:1px solid var(--border);padding:52px 0;text-align:center}
 <section class="section">
   <div class="container">
     <div class="section-label">Providers</div>
-    <h2 class="section-title">13 sources, one install</h2>
+    <h2 class="section-title">22 sources, one install</h2>
     <p class="section-sub">Every provider is queried in parallel and deduplicated — you always get the best available stream.</p>
 
     <div class="cat-tabs">
-      <button class="cat-tab active" onclick="filterCat('all',this)">All (13)</button>
-      <button class="cat-tab" onclick="filterCat('anime',this)">🎌 Anime (3)</button>
-      <button class="cat-tab" onclick="filterCat('movies',this)">🎬 Movies &amp; TV (10)</button>
+      <button class="cat-tab active" onclick="filterCat('all',this)">All (22)</button>
+      <button class="cat-tab" onclick="filterCat('anime',this)">🎌 Anime (4)</button>
+      <button class="cat-tab" onclick="filterCat('movies',this)">🎬 Movies &amp; TV (18)</button>
     </div>
 
     <div class="providers-grid" id="providers-grid">${providerCards}</div>
@@ -631,7 +641,7 @@ footer{border-top:1px solid var(--border);padding:52px 0;text-align:center}
     <div class="configure-box">
       <div class="configure-header">
         <span class="configure-title">Provider Selection</span>
-        <span class="sel-count" id="sel-count">13 / 13 selected</span>
+        <span class="sel-count" id="sel-count">22 / 22 selected</span>
       </div>
       <div class="configure-actions">
         <button class="cfg-action-btn" onclick="selectAll()">Select All</button>
@@ -742,7 +752,7 @@ const BASE = ${JSON.stringify(base)};
 const BP = ${JSON.stringify(BASE_PATH)};
 const PROVIDER_KEYS = ${JSON.stringify(PROVIDER_LIST)};
 const PROVIDER_CATS = ${JSON.stringify(providers.map(p => p.category))};
-let mask = Array(16).fill(1);
+let mask = Array(PROVIDER_KEYS.length).fill(1);
 
 function getMask(){ return mask.join(""); }
 
@@ -763,7 +773,7 @@ function updateUrls(){
   document.getElementById("custom-manifest-input").value = mUrl;
   document.getElementById("custom-install-btn").href = sUrl;
   const sc = document.getElementById("sel-count");
-  sc.textContent = count + " / 13 selected";
+  sc.textContent = count + " / " + PROVIDER_KEYS.length + " selected";
   sc.style.color = count > 0 ? "" : "#f87171";
 }
 
