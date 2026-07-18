@@ -32,6 +32,7 @@ router.get("/debug", (_req, res) => {
     dooflix: "🎬",
     moviebox: "🍿",
     hindmovies: "🎞️",
+    netmirror: "🌐",
   };
   const providerStatus = PROVIDER_LIST.map((p) => {
     const events = recentEvents.filter(
@@ -300,6 +301,7 @@ const PROVIDER_PATTERNS: Record<string, RegExp> = {
   hindmovies:   /HindMoviez/i,
   fourkdhub:    /4KHDHub/i,
   hdhub4u:      /HDHub4U/i,
+  netmirror:    /NetMirror/i,
 };
 
 function countByProvider(streams: { name?: string }[]): Map<string, number> {
@@ -390,6 +392,7 @@ router.get("/debug/health", (_req, res) => {
     cinefreak:    { emoji: "🧊",  label: "CineFreak",     types: "Movies · Series" },
     hindmovies:   { emoji: "🎞️", label: "HindMoviez",    types: "Movies · Series" },
     fourkdhub:    { emoji: "🔵",  label: "4KHDHub",       types: "Movies · Series" },
+    netmirror:    { emoji: "🌐",  label: "NetMirror",     types: "Movies · Series" },
     hdhub4u:      { emoji: "📡",  label: "HDHub4U",       types: "Movies · Series" },
   };
 

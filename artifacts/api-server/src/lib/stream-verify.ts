@@ -136,7 +136,7 @@ export const PROVIDER_VERIFY_REPORT = {
   },
   providers: {
     imdbVerified: {
-      providers: ["AnimeSalt", "DooFlix", "MeowTV", "HindMoviez", "VaPlayer"],
+      providers: ["AnimeSalt", "DooFlix", "MeowTV", "HindMoviez", "VaPlayer", "NetMirror"],
       note: "These providers receive the exact IMDb ID for lookup. They get +20 trust boost. Stream objects contain quality/server metadata only — no embedded content titles. Title/type mismatches at the provider backend cannot be detected from stream objects alone.",
     },
     tmdbVerified: {
@@ -154,6 +154,8 @@ export const PROVIDER_VERIFY_REPORT = {
     limitationsNotes: {
       HindMoviez:
         "Uses IMDb ID scraper. Stream name/title fields contain only quality and server info — title-level mismatch cannot be detected from stream objects alone.",
+      NetMirror:
+        "Resolves IMDB → TMDB internally then queries Netflix/Prime/Hotstar/Disney APIs. The TMDB lookup is trusted; platform-side title matching relies on the platform's own search. Stream objects contain only resolution info — title-level mismatch cannot be detected from stream objects alone.",
     },
   },
 } as const;

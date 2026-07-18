@@ -10,6 +10,7 @@ import kartoonsProxyRouter from "../providers/kartoons/kartoons-proxy.js";
 import animedekhoProxyRouter from "../providers/animedekho/animedekho-proxy.js";
 import vidlinkProxyRouter from "../providers/vidlink/vidlink-proxy.js";
 import movieboxProxyRouter from "../providers/moviebox/moviebox-proxy.js";
+import netmirrorProxyRouter from "../providers/netmirror/netmirror-proxy.js";
 import stremioRouter from "./stremio.js";
 import debugRouter from "./debug.js";
 
@@ -30,6 +31,7 @@ router.use(movieboxProxyRouter);
 router.use(raProxyRouter);
 router.use(meowtvProxyRouter);
 router.use(vidsrcProxyRouter);
+router.use(netmirrorProxyRouter);
 router.use(proxyRouter);
 router.use(stremioRouter);
 

@@ -84,6 +84,7 @@ import {
 } from "../providers/animesalt/animesalt-proxy.js";
 import { encodeParam as hmEncodeParam } from "../providers/hindmovies/hindmovies-proxy.js";
 import { encodeParam as ktEncodeParam } from "../providers/kartoons/kartoons-proxy.js";
+import { fetchNetmirrorStreams, fetchNetmirrorTmdbStreams } from "../providers/netmirror/netmirror-proxy.js";
 import { getStreams as getOneTouchTvStreams, type StreamSource as OTCStreamSource } from "../providers/onetouchtv/onetouchtv.js";
 import { fetchVidLinkStream, ensureVidLinkReady, type VidLinkQuality, type VidLinkResponse } from "../providers/vidlink/vidlink.js";
 import { searchSubtitles } from "../lib/opensubtitles.js";
@@ -2652,7 +2653,7 @@ router.get("/stream/:type/:id.json", async (req, res) => {
         );
       }
       const isSeries = type === "series" && season !== undefined && episode !== undefined;
-      const [ktResult, asResult, raResult, adResult, pxpResult, sfResult, dfResult, ctResult, otResult, vlResult, mbResult, mwResult, vsResult, mdResult, hgResult, vpResult, cfResult, hmResult, fkResult, hdResult] = await Promise.allSettled([
+      const [ktResult, asResult, raResult, adResult, pxpResult, sfResult, dfResult, ctResult, otResult, vlResult, mbResult, mwResult, vsResult, mdResult, hgResult, vpResult, cfResult, hmResult, fkResult, hdResult, nmResult] = await Promise.allSettled([
         ep.has("kartoons") ? getKartoonsStreams(meta.title, type as "movie" | "series", season, episode, apiBase(req), meta, imdbId) : Promise.resolve([]),
         ep.has("animesalt") ? getAnimeSaltStreams(imdbId, type, season, episode, req) : Promise.resolve([]),
         ep.has("rareanime") ? getRareAnimeStreamsByTitle(meta.title, type, season, episode, req, meta.aliases) : Promise.resolve([]),
@@ -2673,6 +2674,7 @@ router.get("/stream/:type/:id.json", async (req, res) => {
         ep.has("hindmovies") ? hindmoviezGetStreams(type as "movie" | "series", imdbId, season, episode, meta.title, meta.year ? String(meta.year) : undefined) : Promise.resolve([]),
         ep.has("fourkdhub") ? (isSeries ? getFourkdHubSeriesStreams(meta.title, season!, episode!, imdbId, meta) : getFourkdHubStreams(meta.title, type, imdbId, meta)) : Promise.resolve([]),
         ep.has("hdhub4u") ? (isSeries ? getHDHub4USeriesStreams(meta.title, season!, episode!, imdbId, meta) : getHDHub4UStreams(meta.title, type, imdbId, meta)) : Promise.resolve([]),
+        ep.has("netmirror") ? fetchNetmirrorStreams(type as "movie" | "series", imdbId, season, episode, req) : Promise.resolve([]),
       ]);
 
       const ktStreams = ktResult.status === "fulfilled" ? ktResult.value : [];
@@ -2700,6 +2702,7 @@ router.get("/stream/:type/:id.json", async (req, res) => {
       const hmStreams = hmResult.status === "fulfilled" ? proxyHindMoviezStreams(hmResult.value, req) : [];
       const fkStreams = fkResult.status === "fulfilled" ? fkResult.value : [];
       const hdStreams = hdResult.status === "fulfilled" ? hdResult.value : [];
+      const nmStreams = nmResult.status === "fulfilled" ? nmResult.value : [];
 
       if (ktResult.status === "rejected") logger.error({ err: ktResult.reason, imdbId }, "Kartoons: crashed");
       if (asResult.status === "rejected") logger.error({ err: asResult.reason, imdbId }, "AnimeSalt: crashed");
@@ -2727,6 +2730,7 @@ router.get("/stream/:type/:id.json", async (req, res) => {
       if (hmResult.status === "rejected") logger.error({ err: hmResult.reason, imdbId }, "HindMoviez: crashed");
       if (fkResult.status === "rejected") logger.error({ err: fkResult.reason, imdbId }, "4KHDHub: crashed");
       if (hdResult.status === "rejected") logger.error({ err: hdResult.reason, imdbId }, "HDHub4U: crashed");
+      if (nmResult.status === "rejected") logger.error({ err: nmResult.reason, imdbId }, "NetMirror: crashed");
 
       // ── Universal content verification ──────────────────────────────────────
       // Per-provider filter before combining — reject streams whose resolved
@@ -2758,14 +2762,15 @@ router.get("/stream/:type/:id.json", async (req, res) => {
       const hmV = filterVerifiedStreams((hmStreams as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx("HindMoviez"));
       const fkV = filterVerifiedStreams(fkStreams as Record<string, unknown>[], _mkCtx("4KHDHub"));
       const hdV = filterVerifiedStreams(hdStreams as Record<string, unknown>[], _mkCtx("HDHub4U"));
+      const nmV = filterVerifiedStreams((nmStreams as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx("NetMirror"));
 
-      const raw = mergeSubtitles(dedup(([...ktV, ...asV, ...raV, ...adV, ...pxpV, ...sfV, ...dfV, ...ctV, ...otV, ...vlV, ...mbV, ...mwV, ...vsV, ...mdV, ...hgV, ...vpV, ...cfV, ...hmV, ...fkV, ...hdV]) as Record<string, unknown>[]));
+      const raw = mergeSubtitles(dedup(([...ktV, ...asV, ...raV, ...adV, ...pxpV, ...sfV, ...dfV, ...ctV, ...otV, ...vlV, ...mbV, ...mwV, ...vsV, ...mdV, ...hgV, ...vpV, ...cfV, ...hmV, ...fkV, ...hdV, ...nmV]) as Record<string, unknown>[]));
       const combined = premiumFormat(raw, meta.title, contentType, season, episode);
       logger.info(
-        { imdbId, title: meta.title, kt: ktV.length, as: asV.length, ra: raV.length, ad: adV.length, pxp: pxpV.length, sf: sfV.length, df: dfV.length, ct: ctV.length, ot: otV.length, vl: vlV.length, mb: mbV.length, mw: mwV.length, vs: vsV.length, md: mdV.length, hg: hgV.length, vp: vpV.length, cf: cfV.length, hm: hmV.length, fk: fkV.length, hd: hdV.length, combined: combined.length },
-        "Stremio: 20 providers aggregated",
+        { imdbId, title: meta.title, kt: ktV.length, as: asV.length, ra: raV.length, ad: adV.length, pxp: pxpV.length, sf: sfV.length, df: dfV.length, ct: ctV.length, ot: otV.length, vl: vlV.length, mb: mbV.length, mw: mwV.length, vs: vsV.length, md: mdV.length, hg: hgV.length, vp: vpV.length, cf: cfV.length, hm: hmV.length, fk: fkV.length, hd: hdV.length, nm: nmV.length, combined: combined.length },
+        "Stremio: 21 providers aggregated",
       );
-      logResolve({ imdbId, step: "done", status: combined.length ? "ok" : "fail", detail: `kt=${ktV.length} as=${asV.length} ra=${raV.length} ad=${adV.length} pxp=${pxpV.length} sf=${sfV.length} df=${dfV.length} ct=${ctV.length} ot=${otV.length} vl=${vlV.length} mb=${mbV.length} mw=${mwV.length} vs=${vsV.length} md=${mdV.length} hg=${hgV.length} vp=${vpV.length} cf=${cfV.length} hm=${hmV.length} fk=${fkV.length} hd=${hdV.length} total=${combined.length}` });
+      logResolve({ imdbId, step: "done", status: combined.length ? "ok" : "fail", detail: `kt=${ktV.length} as=${asV.length} ra=${raV.length} ad=${adV.length} pxp=${pxpV.length} sf=${sfV.length} df=${dfV.length} ct=${ctV.length} ot=${otV.length} vl=${vlV.length} mb=${mbV.length} mw=${mwV.length} vs=${vsV.length} md=${mdV.length} hg=${hgV.length} vp=${vpV.length} cf=${cfV.length} hm=${hmV.length} fk=${fkV.length} hd=${hdV.length} nm=${nmV.length} total=${combined.length}` });
 
       // Cache provider subtitles for LG TV (uses /subtitles/ endpoint, not stream.subtitles[])
       const firstSubs = (combined[0]?.["subtitles"] as Array<{url:string;lang:string;id:string}> | undefined) ?? [];
@@ -2795,14 +2800,14 @@ router.get("/stream/:type/:id.json", async (req, res) => {
         return;
       }
 
-      logger.info({ tmdbId: numericTmdbId, imdbId: meta.imdbId, title: meta.title }, "Stremio: TMDB — querying 20 providers");
+      logger.info({ tmdbId: numericTmdbId, imdbId: meta.imdbId, title: meta.title }, "Stremio: TMDB — querying 21 providers");
       logResolve({ imdbId: id, step: "resolve", status: "ok", detail: `${meta.title} (${meta.year}) imdb=${meta.imdbId}` });
 
       const hasImdb = meta.imdbId.startsWith("tt");
 
       const ep2 = getEnabledProviders(req as RequestWithConfig);
       const isSeries2 = type === "series" && season !== undefined && episode !== undefined;
-      const [ktResult2, asResult, raResult, adResult, pxpResult, sfResult, dfResult, ctResult, otResult, vlResult, mbResult, mwResult, vsResult, mdResult, hgResult, vpResult, cfResult, hmResult, fkResult, hdResult] = await Promise.allSettled([
+      const [ktResult2, asResult, raResult, adResult, pxpResult, sfResult, dfResult, ctResult, otResult, vlResult, mbResult, mwResult, vsResult, mdResult, hgResult, vpResult, cfResult, hmResult, fkResult, hdResult, nmResult] = await Promise.allSettled([
         ep2.has("kartoons") ? getKartoonsStreams(meta.title, type as "movie" | "series", season, episode, apiBase(req), meta, hasImdb ? meta.imdbId : undefined) : Promise.resolve([]),
         (ep2.has("animesalt") && hasImdb) ? getAnimeSaltStreams(meta.imdbId, type, season, episode, req) : Promise.resolve([]),
         ep2.has("rareanime") ? getRareAnimeStreamsByTitle(meta.title, type, season, episode, req, meta.aliases) : Promise.resolve([]),
@@ -2823,6 +2828,7 @@ router.get("/stream/:type/:id.json", async (req, res) => {
         (ep2.has("hindmovies") && hasImdb) ? hindmoviezGetStreams(type as "movie" | "series", meta.imdbId, season, episode, meta.title, meta.year ? String(meta.year) : undefined) : Promise.resolve([]),
         ep2.has("fourkdhub") ? (isSeries2 ? getFourkdHubSeriesStreams(meta.title, season!, episode!, hasImdb ? meta.imdbId : undefined, meta) : getFourkdHubStreams(meta.title, type, hasImdb ? meta.imdbId : undefined, meta)) : Promise.resolve([]),
         ep2.has("hdhub4u") ? (isSeries2 ? getHDHub4USeriesStreams(meta.title, season!, episode!, hasImdb ? meta.imdbId : undefined, meta) : getHDHub4UStreams(meta.title, type, hasImdb ? meta.imdbId : undefined, meta)) : Promise.resolve([]),
+        ep2.has("netmirror") ? fetchNetmirrorTmdbStreams(numericTmdbId, type as "movie" | "series", meta.title, season, episode, req) : Promise.resolve([]),
       ]);
 
       const ktStreams2 = ktResult2.status === "fulfilled" ? ktResult2.value : [];
@@ -2850,6 +2856,7 @@ router.get("/stream/:type/:id.json", async (req, res) => {
       const hmStreams = hmResult.status === "fulfilled" ? proxyHindMoviezStreams(hmResult.value, req) : [];
       const fkStreams = fkResult.status === "fulfilled" ? fkResult.value : [];
       const hdStreams = hdResult.status === "fulfilled" ? hdResult.value : [];
+      const nmStreams = nmResult.status === "fulfilled" ? nmResult.value : [];
 
       if (ktResult2.status === "rejected") logger.error({ err: ktResult2.reason, tmdbId: numericTmdbId }, "Kartoons: crashed");
       if (asResult.status === "rejected") logger.error({ err: asResult.reason, tmdbId: numericTmdbId }, "AnimeSalt: crashed");
@@ -2871,6 +2878,7 @@ router.get("/stream/:type/:id.json", async (req, res) => {
       if (hmResult.status === "rejected") logger.error({ err: hmResult.reason, tmdbId: numericTmdbId }, "HindMoviez: crashed");
       if (fkResult.status === "rejected") logger.error({ err: fkResult.reason, tmdbId: numericTmdbId }, "4KHDHub: crashed");
       if (hdResult.status === "rejected") logger.error({ err: hdResult.reason, tmdbId: numericTmdbId }, "HDHub4U: crashed");
+      if (nmResult.status === "rejected") logger.error({ err: nmResult.reason, tmdbId: numericTmdbId }, "NetMirror: crashed");
 
       // ── Universal content verification (TMDB block) ──────────────────────────
       const _mkCtx2 = (p: string): VerifyContext => ({
@@ -2898,14 +2906,15 @@ router.get("/stream/:type/:id.json", async (req, res) => {
       const hmV2 = filterVerifiedStreams((hmStreams as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx2("HindMoviez"));
       const fkV2 = filterVerifiedStreams(fkStreams as Record<string, unknown>[], _mkCtx2("4KHDHub"));
       const hdV2 = filterVerifiedStreams(hdStreams as Record<string, unknown>[], _mkCtx2("HDHub4U"));
+      const nmV2 = filterVerifiedStreams((nmStreams as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx2("NetMirror"));
 
-      const raw2 = mergeSubtitles(dedup(([...ktV2, ...asV2, ...raV2, ...adV2, ...pxpV2, ...sfV2, ...dfV2, ...ctV2, ...otV2, ...vlV2, ...mbV2, ...mwV2, ...vsV2, ...mdV2, ...hgV2, ...vpV2, ...cfV2, ...hmV2, ...fkV2, ...hdV2]) as Record<string, unknown>[]));
+      const raw2 = mergeSubtitles(dedup(([...ktV2, ...asV2, ...raV2, ...adV2, ...pxpV2, ...sfV2, ...dfV2, ...ctV2, ...otV2, ...vlV2, ...mbV2, ...mwV2, ...vsV2, ...mdV2, ...hgV2, ...vpV2, ...cfV2, ...hmV2, ...fkV2, ...hdV2, ...nmV2]) as Record<string, unknown>[]));
       const combined = premiumFormat(raw2, meta.title, contentType, season, episode);
       logger.info(
-        { tmdbId: numericTmdbId, title: meta.title, kt: ktV2.length, as: asV2.length, ra: raV2.length, ad: adV2.length, pxp: pxpV2.length, sf: sfV2.length, df: dfV2.length, ct: ctV2.length, ot: otV2.length, vl: vlV2.length, mb: mbV2.length, mw: mwV2.length, vs: vsV2.length, md: mdV2.length, hg: hgV2.length, vp: vpV2.length, cf: cfV2.length, hm: hmV2.length, fk: fkV2.length, hd: hdV2.length, combined: combined.length },
-        "Stremio: TMDB 20 providers aggregated",
+        { tmdbId: numericTmdbId, title: meta.title, kt: ktV2.length, as: asV2.length, ra: raV2.length, ad: adV2.length, pxp: pxpV2.length, sf: sfV2.length, df: dfV2.length, ct: ctV2.length, ot: otV2.length, vl: vlV2.length, mb: mbV2.length, mw: mwV2.length, vs: vsV2.length, md: mdV2.length, hg: hgV2.length, vp: vpV2.length, cf: cfV2.length, hm: hmV2.length, fk: fkV2.length, hd: hdV2.length, nm: nmV2.length, combined: combined.length },
+        "Stremio: TMDB 21 providers aggregated",
       );
-      logResolve({ imdbId: id, step: "done", status: combined.length ? "ok" : "fail", detail: `kt=${ktV2.length} as=${asV2.length} ra=${raV2.length} ad=${adV2.length} pxp=${pxpV2.length} sf=${sfV2.length} df=${dfV2.length} ct=${ctV2.length} ot=${otV2.length} vl=${vlV2.length} mb=${mbV2.length} mw=${mwV2.length} vs=${vsV2.length} md=${mdV2.length} hg=${hgV2.length} vp=${vpV2.length} cf=${cfV2.length} hm=${hmV2.length} fk=${fkV2.length} hd=${hdV2.length} total=${combined.length}` });
+      logResolve({ imdbId: id, step: "done", status: combined.length ? "ok" : "fail", detail: `kt=${ktV2.length} as=${asV2.length} ra=${raV2.length} ad=${adV2.length} pxp=${pxpV2.length} sf=${sfV2.length} df=${dfV2.length} ct=${ctV2.length} ot=${otV2.length} vl=${vlV2.length} mb=${mbV2.length} mw=${mwV2.length} vs=${vsV2.length} md=${mdV2.length} hg=${hgV2.length} vp=${vpV2.length} cf=${cfV2.length} hm=${hmV2.length} fk=${fkV2.length} hd=${hdV2.length} nm=${nmV2.length} total=${combined.length}` });
 
       // Cache provider subtitles for LG TV using the resolved IMDB ID
       if (meta.imdbId?.startsWith("tt")) {
