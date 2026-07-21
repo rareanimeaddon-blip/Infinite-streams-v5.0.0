@@ -3,7 +3,7 @@ import { setPlayerApiResult } from "./animesalt-player-cache.js";
 import { findBestMatch, type MatchCandidate } from "../../utils/match.js";
 
 const TMDB_KEY = "d80ba92bc7cefe3359668d30d06f3305";
-const BASE = "https://animesalt.ac";
+const BASE = "https://animesalt.link";
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36";
 
@@ -60,7 +60,7 @@ function parseLiResults(html: string): SearchResult[] {
         : null;
     if (!type) continue;
     const linkMatch = content.match(
-      /href="(https:\/\/animesalt\.ac\/(series|movies)\/([^\/\"]+)\/?)"/,
+      /href="(https:\/\/animesalt\.(?:ac|link)\/(series|movies)\/([^\/\"]+)\/?)"/,
     );
     const titleMatch = content.match(/entry-title[^>]*>([^<]+)</);
     const yearMatch = content.match(/class="year[^"]*">(\d{4})/);
@@ -128,7 +128,7 @@ function getEpisodeUrlFromHtml(
   episode: number,
 ): string | null {
   const epRegex = new RegExp(
-    `href="(https://animesalt\\.ac/episode/[^"]*${season}x${episode}[^"]*)"`,
+    `href="(https://animesalt\\.(?:ac|link)/episode/[^"]*${season}x${episode}[^"]*)"`,
   );
   const epMatch = html.match(epRegex);
   return epMatch ? epMatch[1] : null;

@@ -18,7 +18,7 @@ function decodeParam(s: string): string {
 
 const AS_CDN_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Safari/537.36";
-const AS_CDN_REFERER = "https://animesalt.ac/";
+const AS_CDN_REFERER = "https://animesalt.link/";
 
 // Extra browser-like headers that some CDNs (Cloudflare bot-mgmt) require
 // to distinguish real browsers from bots/datacenter IPs.
@@ -638,7 +638,7 @@ function putHindiFirstInMaster(m3u8: string): string {
 
 async function computeRelayM3u8(hash: string, playerCdn: string, proxyBase: string): Promise<string> {
   const playerUrl = `${playerCdn}/video/${hash}`;
-  const animesaltBase = "https://animesalt.ac";
+  const animesaltBase = "https://animesalt.link";
 
   // Step 1: Get the signed m3u8 URL.
   // Check the scraper's cache first — animesalt.ts already called the player API

@@ -946,7 +946,7 @@ async function resolveEmbedUrl(
     "vidmoly.to", "vidmoly.net",
     "rubystm.com", "vidstreaming.xyz", "abyssplayer.com",
     "emturbovid.com", "strmup.to", "blakiteapi.xyz",
-    "animesalt.ac", "short.icu",
+    "animesalt.link", "animesalt.ac", "short.icu",
   ];
   if (genericHosts.some((h) => embedUrl.includes(h))) {
     return await extractGenericPlayer(embedUrl, referer);
@@ -1062,7 +1062,7 @@ export async function fetchStreams(
     const embedUrl = iframeUrls[i];
     if (!embedUrl) continue;
     const serverName = serverNames[i] ?? `Server ${i + 1}`;
-    if (embedUrl.includes("animesalt.ac")) {
+    if (embedUrl.includes("animesalt.link") || embedUrl.includes("animesalt.ac")) {
       const pairs = decodeAnimesalt(embedUrl);
       if (pairs.length > 0) {
         for (const pair of pairs) {
