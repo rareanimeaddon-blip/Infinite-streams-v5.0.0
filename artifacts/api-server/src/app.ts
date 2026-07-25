@@ -64,8 +64,8 @@ function serveLandingPage(req: express.Request, res: express.Response) {
 
   // Provider order MUST match PROVIDER_LIST in lib/provider-config.ts
   // 0=kartoons 1=animesalt 2=rareanime 3=animedekho 4=piratexplay 5=streamflix
-  // 6=dooflix 7=castletv 8=onetouchtv 9=vidlink 10=moviebox 11=meowtv 12=vidsrc 13=moviesdrive
-  // 14=hdghartv 15=vaplayer 16=cinefreak 17=hindmovies 18=fourkdhub 19=hdhub4u 20=netmirror 21=zxcstreams
+  // 6=dooflix 7=castletv 8=onetouchtv 9=vidlink 10=moviebox 11=111477 12=meowtv 13=vidsrc
+  // 14=moviesdrive 15=hdghartv 16=vaplayer 17=cinefreak 18=hindmovies 19=fourkdhub 20=hdhub4u 21=netmirror 22=zxcstreams
   const providers: Array<{
     key: string;
     name: string;
@@ -184,6 +184,16 @@ function serveLandingPage(req: express.Request, res: express.Response) {
       glow: "rgba(245,158,11,0.25)",
       tags: ["Multi-Audio", "Hindi", "Bengali", "English"],
       desc: "Rich multi-audio library with Original, Hindi, English, Bengali and more audio tracks.",
+      category: "movies",
+    },
+    {
+      key: "111477",
+      name: "111477",
+      emoji: "📂",
+      color: "#64748b",
+      glow: "rgba(100,116,139,0.25)",
+      tags: ["Direct MKV/MP4", "Movies & Series", "No Proxy"],
+      desc: "Direct .mkv/.mp4 file streams from the ldh10.971188.xyz mirror of a.111477.xyz — no proxy, Stremio fetches files itself.",
       category: "movies",
     },
     {
@@ -345,7 +355,7 @@ function serveLandingPage(req: express.Request, res: express.Response) {
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<meta name="description" content="INFINITE STREAMS — 22 providers, one addon. Kartoons, AnimeSalt, RareAnime, AnimeDekho, PirateXPlay, StreamFlix, DooFlix, CastleTV, OneTouchTV, VidLink, MovieBox, MeowTV, VidSrc, MoviesDrive, HDGharTV, VaPlayer, CineFreak, HindMoviez, 4KHDHub, HDHub4U, NetMirror, ZXCStreams. Install in one click."/>
+<meta name="description" content="INFINITE STREAMS — 23 providers, one addon. Kartoons, AnimeSalt, RareAnime, AnimeDekho, PirateXPlay, StreamFlix, DooFlix, CastleTV, OneTouchTV, VidLink, MovieBox, 111477, MeowTV, VidSrc, MoviesDrive, HDGharTV, VaPlayer, CineFreak, HindMoviez, 4KHDHub, HDHub4U, NetMirror, ZXCStreams. Install in one click."/>
 <title>INFINITE STREAMS — Stremio Addon</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300..900;1,14..32,300..900&display=swap" rel="stylesheet"/>
@@ -618,7 +628,7 @@ footer{border-top:1px solid var(--border);padding:52px 0;text-align:center}
 <section class="section">
   <div class="container">
     <div class="section-label">Providers</div>
-    <h2 class="section-title">22 sources, one install</h2>
+    <h2 class="section-title">23 sources, one install</h2>
     <p class="section-sub">Every provider is queried in parallel and deduplicated — you always get the best available stream.</p>
 
     <div class="cat-tabs">
