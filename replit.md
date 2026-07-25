@@ -1,6 +1,6 @@
 # INFINITE STREAMS
 
-A Stremio addon (v8.8.0) that aggregates streams from 22 providers into a single manifest — movies, series, and anime with Indian-language content support.
+A Stremio addon (v8.8.0) that aggregates streams from 22 providers into a single manifest — movies, series, and anime with Indian-language content support. (VidLink removed — was dead.)
 
 ## Run & Operate
 
@@ -12,7 +12,7 @@ A Stremio addon (v8.8.0) that aggregates streams from 22 providers into a single
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
 - API: Express 5, esbuild (fully self-contained ESM bundle)
-- 22 stream providers: Kartoons, AnimeSalt, RareAnime, AnimeDekho, PirateXPlay, NetMirror, StreamFlix, DooFlix, CastleTV, OneTouchTV, VidLink, MovieBox, MeowTV, VidSrc, MoviesDrive, HDGharTV, VaPlayer, CineFreak, HindMoviez, Movies4u, 4KHDHub, HDHub4U
+- 22 stream providers: Kartoons, AnimeSalt, RareAnime, AnimeDekho, PirateXPlay, NetMirror, StreamFlix, DooFlix, CastleTV, OneTouchTV, MovieBox, 111477, MeowTV, VidSrc, MoviesDrive, HDGharTV, VaPlayer, CineFreak, HindMoviez, 4KHDHub, HDHub4U, ZXCStreams
 - Title matching: universal shared matcher (`utils/match.ts`) used by every provider — see "Universal matching system" below
 - Health endpoint: `GET /api/healthz`
 
@@ -20,12 +20,12 @@ A Stremio addon (v8.8.0) that aggregates streams from 22 providers into a single
 
 - `artifacts/api-server/src/providers/<name>/` — each provider has its own folder (e.g. `providers/netmirror/netmirror.ts`). Any extractor/helper file used by only that provider lives inside its folder too (e.g. `providers/animedekho/extractors/*` — the 18-file embed-host extractor suite is private to AnimeDekho; `providers/hdhub4u/hdhub4u-base.ts` and `providers/fourkdhub/hdhub4u-base.ts` are separate copies, one per provider, so a change to one never affects the other).
 - `artifacts/api-server/src/providers/<name>/<name>-proxy.ts` — 8 providers also have their own proxy router: the 4 that had a dedicated proxy route file to begin with (netmirror, rareanime, meowtv, vidsrc — moved as-is) plus 4 that shared the old monolithic `routes/proxy.ts` (animesalt, hindmovies, movies4u, kartoons — each got a **full private copy** of that file, per user decision to duplicate rather than split, since splitting risked breaking cross-provider logic). Each provider's block in `routes/stremio.ts` imports its encoding helpers (`encodeParam`, `prewarmAsRelay`) from its own copy via an aliased import (e.g. `asEncodeParam`, `hmEncodeParam`) — never from the shared original.
-- `artifacts/api-server/src/routes/proxy.ts` — the original monolithic file stays mounted too and still serves MovieBox (`/stream.m3u8`, `/proxy`), VidLink (`/vidlink-stream`), AnimeDekho's shared `/m3u8`, and the generic `/subtitle-proxy` — none of these 3 providers have a dedicated provider folder yet (MovieBox/VidLink logic is spread across `lib/moviebox-*.ts` / `lib/vidlink.ts` + inline in `stremio.ts`; AnimeDekho only calls `/m3u8` over HTTP, no source-level import). Giving them real provider folders + their own proxy copy is a further follow-up, not yet done.
+- `artifacts/api-server/src/routes/proxy.ts` — the original monolithic file stays mounted too and still serves MovieBox (`/stream.m3u8`, `/proxy`), AnimeDekho's shared `/m3u8`, and the generic `/subtitle-proxy` — none of these providers have a dedicated provider folder yet (MovieBox logic is spread across `lib/moviebox-*.ts` + inline in `stremio.ts`; AnimeDekho only calls `/m3u8` over HTTP, no source-level import). Giving them real provider folders + their own proxy copy is a further follow-up, not yet done.
 - `artifacts/api-server/src/lib/` and `artifacts/api-server/src/utils/` — genuinely shared infrastructure (logger, the universal matcher, fetch helpers, TMDB verification, etc.) used across many providers. These stay shared by design — do not duplicate them into provider folders.
 - `artifacts/api-server/src/extractors/` — legacy top-level extractor files (hubcloud.ts, hblinks.ts, hubcdn.ts, hubdrive.ts, pixeldrain.ts, streamtape.ts, stream-utils.ts, index.ts, vidstack.ts) are **dead code**, superseded by HDHub4U's own inline `resolveHubCloud()` logic. Only `extractors/types.ts` (the shared `Stream` type) is still used, by `routes/stremio.ts`. Safe to delete the rest in a follow-up cleanup.
 - `artifacts/api-server/src/lib/kartoons-config.ts` — Kartoons config loader (token, base URL)
 - `artifacts/api-server/src/lib/kartoons-addon.ts` — Kartoons Stremio addon API client (search, episodes, streams)
-- `artifacts/api-server/src/routes/stremio.ts` — main aggregation logic; imports one entry function per provider from its folder, then fans out with `Promise.allSettled`. Several providers (AnimeDekho, MovieBox, RareAnime, Kartoons, DooFlix, VidLink, HDGharTV/VaPlayer, MoviesDrive, HindMoviez, PirateXPlay) still have provider-specific helper logic living inline in this file rather than in their own folder — pulling that out is a larger, separate follow-up, not done as part of the providers/extractors reorg.
+- `artifacts/api-server/src/routes/stremio.ts` — main aggregation logic; imports one entry function per provider from its folder, then fans out with `Promise.allSettled`. Several providers (AnimeDekho, MovieBox, RareAnime, Kartoons, DooFlix, HDGharTV/VaPlayer, MoviesDrive, HindMoviez, PirateXPlay) still have provider-specific helper logic living inline in this file rather than in their own folder — pulling that out is a larger, separate follow-up, not done as part of the providers/extractors reorg.
 - `artifacts/api-server/src/utils/title-score.ts` — `titleSimilarityScore()` (Jaccard + abbreviation handling)
 - `artifacts/api-server/src/lib/meta-resolver.ts` — IMDB → title via Cinemeta + TMDB
 - `artifacts/api-server/src/manifest.ts` — addon manifest + provider list

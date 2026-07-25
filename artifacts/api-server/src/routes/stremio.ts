@@ -76,7 +76,6 @@ import {
   type Subject as MBSubject,
 } from "../providers/moviebox/moviebox-api.js";
 import { encodeParam as mbEncodeParam } from "../providers/moviebox/moviebox-proxy.js";
-import { buildVidLinkStreamProxyUrl } from "../providers/vidlink/vidlink-proxy.js";
 import { encodeParam as adEncodeParam } from "../providers/animedekho/animedekho-proxy.js";
 import {
   encodeParam as asEncodeParam,
@@ -88,7 +87,6 @@ import { fetchNetmirrorStreams, fetchNetmirrorTmdbStreams } from "../providers/n
 import { getZxcstreamsStreams } from "../providers/zxcstreams/zxcstreams.js";
 import { get111477Streams } from "../providers/111477/provider-111477.js";
 import { getStreams as getOneTouchTvStreams, type StreamSource as OTCStreamSource } from "../providers/onetouchtv/onetouchtv.js";
-import { fetchVidLinkStream, ensureVidLinkReady, type VidLinkQuality, type VidLinkResponse } from "../providers/vidlink/vidlink.js";
 import { searchSubtitles } from "../lib/opensubtitles.js";
 import { BASE_PATH } from "../lib/base-path.js";
 import { logger } from "../lib/logger.js";
@@ -105,81 +103,6 @@ import {
 import type { Stream } from "../extractors/types.js";
 
 const router = Router();
-
-// ─── VidLink helpers ──────────────────────────────────────────────────────────
-const VL_QUALITY_ORDER = ["1080", "720", "480", "360"] as const;
-type VLQualityKey = (typeof VL_QUALITY_ORDER)[number];
-const VL_QUALITY_LABELS: Record<string, string> = { "1080": "1080p", "720": "720p", "480": "480p", "360": "360p" };
-
-function filenameFromUrl(cdnUrl: string, label: string): string {
-  try {
-    const pathname = new URL(cdnUrl).pathname;
-    const base = pathname.split("/").pop() ?? "stream.mp4";
-    return base.endsWith(".mp4") ? base : `${label.replace(/\s+/g, "_")}.mp4`;
-  } catch { return `${label.replace(/\s+/g, "_")}.mp4`; }
-}
-
-// VidLink's CDN (currently vodvidl.site, previously hakunaymatata.com — the exact
-// host changes without notice) requires the request that fetches the video bytes
-// to carry `Referer: https://vidlink.pro/`. Handing the client the raw CDN URL
-// (even with `behaviorHints.proxyHeaders`) still exposes the *client's own IP* to
-// the CDN's WAF, which intermittently hard-blocks certain client networks (seen:
-// Indian mobile carrier IPs blocked on 480p/360p with a Cloudflare "Sorry, you have
-// been blocked" page, while 1080p / other titles worked) — causing endless
-// loading in the player. A same-origin 307 redirect doesn't fix this either, since
-// the client still ends up fetching the CDN directly after the redirect.
-//
-// Fix: stream the video bytes through our own server (`/vidlink-stream`, see
-// routes/proxy.ts) instead of exposing the CDN URL to the client at all. The CDN
-// then only ever sees our server's IP (not subject to that per-client WAF block),
-// and we attach Referer/Origin ourselves server-side — no dependency on the CDN
-// host name, so it also survives future host rotations without allowlists.
-// See .agents/memory/vidlink-cdn-auth.md.
-function buildVidLinkStreams(qualities: Record<string, VidLinkQuality>, base: string): Array<Record<string, unknown>> {
-  const streams: Array<Record<string, unknown>> = [];
-  const pushStream = (label: string, quality: VidLinkQuality) => {
-    if (!quality?.url) return;
-    const filename = filenameFromUrl(quality.url, label);
-    const proxyUrl = buildVidLinkStreamProxyUrl(base, quality.url, filename);
-    // If SESSION_SECRET is not configured, proxyUrl is null — fall back to handing
-    // the CDN URL directly to the player with proxyHeaders (the pre-proxy approach).
-    // This means VidLink always works regardless of whether SESSION_SECRET is set.
-    // The server-side proxy is preferred when available (shields client IP from WAF)
-    // but the direct approach works fine for most deployments, especially home servers.
-    const codec = quality.codecName ? ` • ${quality.codecName.toUpperCase()}` : "";
-    if (proxyUrl) {
-      streams.push({
-        name: "🔗 VidLink",
-        description: `${label}${codec}`,
-        url: proxyUrl,
-        behaviorHints: { notWebReady: false, filename },
-      });
-    } else {
-      streams.push({
-        name: "🔗 VidLink",
-        description: `${label}${codec}`,
-        url: quality.url,
-        behaviorHints: {
-          notWebReady: true,
-          filename,
-          proxyHeaders: { request: { Referer: "https://vidlink.pro/", Origin: "https://vidlink.pro" } },
-        },
-      });
-    }
-  };
-  for (const q of VL_QUALITY_ORDER) {
-    const quality = qualities[q];
-    if (quality?.url) pushStream(VL_QUALITY_LABELS[q] ?? `${q}p`, quality);
-  }
-  for (const [key, quality] of Object.entries(qualities)) {
-    if (VL_QUALITY_ORDER.includes(key as VLQualityKey)) continue;
-    if (quality?.url) pushStream(`${key}p`, quality);
-  }
-  return streams;
-}
-
-// Warm up VidLink WASM eagerly so first stream requests don't pay the init cost.
-ensureVidLinkReady().catch((err) => logger.error({ err }, "VidLink WASM warmup failed"));
 
 // ─── Provider config middleware ───────────────────────────────────────────────
 // Intercepts any request whose path starts with a 9-char 0/1 mask prefix,
@@ -2420,92 +2343,6 @@ router.get("/subtitles/:type/:id.json", subtitlesHandler);
 // `:extra` captures and discards the stream-context info; `:id` is still the IMDB ID.
 router.get("/subtitles/:type/:id/:extra.json", subtitlesHandler);
 
-// ─── VidLink diagnostic endpoint ─────────────────────────────────────────────
-// Hit /api/test/vidlink (or /<mask>/test/vidlink) from a browser on the server
-// to instantly see which layer is broken: WASM init, TMDB lookup, or VidLink API.
-
-router.get("/test/vidlink", async (req: Request, res: Response) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Content-Type", "application/json");
-
-  const report: Record<string, unknown> = {
-    timestamp: new Date().toISOString(),
-    sessionSecretSet: !!process.env["SESSION_SECRET"],
-  };
-
-  // ── Step 1: WASM ────────────────────────────────────────────────────────────
-  try {
-    await ensureVidLinkReady();
-    report.wasm = "OK";
-  } catch (err) {
-    report.wasm = `FAILED: ${(err as Error).message}`;
-    report.diagnosis = "WASM init failed. The server cannot produce VidLink streams at all. " +
-      "Check that wasm/fu.wasm and wasm/script.js exist and that libsodium-wrappers is installed.";
-    res.status(200).json(report);
-    return;
-  }
-
-  // ── Step 2: TMDB lookup ─────────────────────────────────────────────────────
-  const testImdbId = "tt1375666"; // Inception
-  const tmdbId = await imdbToTmdbId(testImdbId, "movie");
-  if (!tmdbId) {
-    report.tmdb = "FAILED (returned null)";
-    report.diagnosis = "TMDB ID lookup failed. VidLink is silently skipped for every request. " +
-      "Verify the server can reach https://api.themoviedb.org.";
-    res.status(200).json(report);
-    return;
-  }
-  report.tmdb = `OK (Inception → tmdbId=${tmdbId})`;
-
-  // ── Step 3: VidLink API ─────────────────────────────────────────────────────
-  let vlResponse: VidLinkResponse | null = null;
-  try {
-    vlResponse = await fetchVidLinkStream({ type: "movie", tmdbId });
-  } catch (err) {
-    report.vidlinkApi = `FAILED (threw): ${(err as Error).message}`;
-    report.diagnosis = "VidLink API threw an error. Check server logs for details.";
-    res.status(200).json(report);
-    return;
-  }
-
-  if (!vlResponse) {
-    report.vidlinkApi = "FAILED (returned null — non-200 from vidlink.pro)";
-    report.diagnosis = "VidLink API returned null. Likely causes: (1) the server IP is blocked by vidlink.pro, " +
-      "(2) the WASM-encoded ID is stale/wrong, or (3) a transient API outage.";
-    res.status(200).json(report);
-    return;
-  }
-
-  const qualities = vlResponse.stream?.qualities ?? {};
-  const qualityKeys = Object.keys(qualities);
-  if (!qualityKeys.length) {
-    report.vidlinkApi = "FAILED (API responded but qualities object is empty)";
-    report.diagnosis = "VidLink API responded but returned no playable streams. This is unusual — try again.";
-    res.status(200).json(report);
-    return;
-  }
-
-  report.vidlinkApi = `OK — sourceId=${vlResponse.sourceId}, qualities=[${qualityKeys.join(", ")}]`;
-
-  // ── Step 4: Stream URL generation ───────────────────────────────────────────
-  const firstQuality = Object.values(qualities)[0];
-  const cdnUrl = firstQuality?.url ?? "";
-  const proxyUrl = buildVidLinkStreamProxyUrl(apiBase(req), cdnUrl, "test.mp4");
-  if (proxyUrl) {
-    report.streamUrl = "SIGNED_PROXY (SESSION_SECRET is set — server-side proxy active, client IP hidden from CDN WAF)";
-    report.urlSample = proxyUrl.slice(0, 80) + "...";
-  } else {
-    report.streamUrl = "DIRECT_FALLBACK (SESSION_SECRET not set — player will fetch CDN directly with proxyHeaders)";
-    report.urlSample = cdnUrl.slice(0, 80) + "...";
-    report.note = "This should still work for home networks. If playback fails, set SESSION_SECRET to enable the server-side proxy.";
-  }
-
-  report.diagnosis = "Everything looks healthy. If streams still don't appear in Stremio, " +
-    "restart the Pi server (git pull → pnpm install → pnpm build → restart) to apply any code changes.";
-
-  res.status(200).json(report);
-});
-
 // ─── Stream endpoint ──────────────────────────────────────────────────────────
 
 router.get("/stream/:type/:id.json", async (req, res) => {
@@ -2625,37 +2462,17 @@ router.get("/stream/:type/:id.json", async (req, res) => {
       logger.info({ imdbId, title: meta.title, year: meta.year }, "Stremio: IMDB — querying 22 providers");
       logResolve({ imdbId, step: "resolve", status: "ok", detail: `${meta.title} (${meta.year})` });
 
-      // Resolve TMDB ID shared by StreamFlix and VidLink.
-      // Track whether the call threw (transient network/DNS failure) vs returned
-      // null normally (title genuinely not in TMDB) — only retry for VidLink in
-      // the transient case; a normal null means TMDB simply doesn't know the
-      // title, so a retry would waste an API call and still return null.
+      // Resolve TMDB ID for StreamFlix (uses TMDB numeric ID).
       let sfTmdbId: string | null = null;
-      let sfTmdbThrew = false;
       try {
         sfTmdbId = await imdbToTmdbId(imdbId, type);
       } catch {
-        sfTmdbThrew = true;
+        // TMDB lookup failed; StreamFlix will skip
       }
-      // For VidLink: if the shared lookup threw (transient), retry once so a
-      // momentary hiccup doesn't silently kill VidLink for the whole request.
-      const vlTmdbId = sfTmdbThrew
-        ? await imdbToTmdbId(imdbId, type).catch(() => null)
-        : sfTmdbId;
 
       const ep = getEnabledProviders(req as RequestWithConfig);
-
-      // #1 silent failure: VidLink produces zero streams with no error log when
-      // vlTmdbId is null.  Emit a clear warning so it shows up in server logs.
-      if (!vlTmdbId && ep.has("vidlink")) {
-        logger.warn(
-          { imdbId, type, sfTmdbThrew },
-          "VidLink: TMDB ID lookup returned null — provider will be skipped. " +
-          "Verify the server can reach api.themoviedb.org and that the TMDB API key is valid.",
-        );
-      }
       const isSeries = type === "series" && season !== undefined && episode !== undefined;
-      const [ktResult, asResult, raResult, adResult, pxpResult, sfResult, dfResult, ctResult, otResult, vlResult, mbResult, p11Result, mwResult, vsResult, mdResult, hgResult, vpResult, cfResult, hmResult, fkResult, hdResult, nmResult, zxcResult] = await Promise.allSettled([
+      const [ktResult, asResult, raResult, adResult, pxpResult, sfResult, dfResult, ctResult, otResult, mbResult, p11Result, mwResult, vsResult, mdResult, hgResult, vpResult, cfResult, hmResult, fkResult, hdResult, nmResult, zxcResult] = await Promise.allSettled([
         ep.has("kartoons") ? getKartoonsStreams(meta.title, type as "movie" | "series", season, episode, apiBase(req), meta, imdbId) : Promise.resolve([]),
         ep.has("animesalt") ? getAnimeSaltStreams(imdbId, type, season, episode, req) : Promise.resolve([]),
         ep.has("rareanime") ? getRareAnimeStreamsByTitle(meta.title, type, season, episode, req, meta.aliases) : Promise.resolve([]),
@@ -2665,7 +2482,6 @@ router.get("/stream/:type/:id.json", async (req, res) => {
         ep.has("dooflix") ? getDooflixStreams(apiBase(req), imdbId, type, season, episode) : Promise.resolve([]),
         ep.has("castletv") ? getCastleTvStreams(meta.title, meta.year ? String(meta.year) : undefined, type as "movie" | "series", season, episode, meta.originalLanguage) : Promise.resolve([]),
         ep.has("onetouchtv") ? getOneTouchTvStreams(meta.title, type as "movie" | "series", meta.year ?? null, season ?? null, episode ?? null, imdbId, null) : Promise.resolve([]),
-        (ep.has("vidlink") && vlTmdbId) ? fetchVidLinkStream(isSeries ? { type: "tv", tmdbId: vlTmdbId, season: season!, episode: episode! } : { type: "movie", tmdbId: vlTmdbId }) : Promise.resolve(null),
         ep.has("moviebox") ? getMovieBoxStreams(meta, season, episode, req, imdbId) : Promise.resolve([]),
         ep.has("111477") ? get111477Streams(type as "movie" | "series", meta.title, meta.aliases[0], meta.year, season, episode) : Promise.resolve([]),
         ep.has("meowtv") ? getMeowTvStreams(type as "movie" | "series", imdbId, season, episode, apiBase(req), meta.title) : Promise.resolve([]),
@@ -2694,8 +2510,6 @@ router.get("/stream/:type/:id.json", async (req, res) => {
         ...(s.subtitles?.length ? { subtitles: s.subtitles.map((t: { url: string; lang: string }) => ({ id: t.url, url: t.url, lang: t.lang })) } : {}),
         ...(s.headers ? { behaviorHints: { proxyHeaders: { request: s.headers } } } : {}),
       }));
-      const vlResponse = vlResult.status === "fulfilled" ? vlResult.value as VidLinkResponse | null : null;
-      const vlStreams = vlResponse?.stream?.qualities ? buildVidLinkStreams(vlResponse.stream.qualities, apiBase(req)) : [];
       const mbStreams = mbResult.status === "fulfilled" ? mbResult.value : [];
       const p11Streams = p11Result.status === "fulfilled" ? p11Result.value : [];
       const mwStreams = mwResult.status === "fulfilled" ? mwResult.value : [];
@@ -2719,13 +2533,6 @@ router.get("/stream/:type/:id.json", async (req, res) => {
       if (dfResult.status === "rejected") logger.error({ err: dfResult.reason, imdbId }, "DooFlix: crashed");
       if (ctResult.status === "rejected") logger.error({ err: ctResult.reason, imdbId }, "CastleTV: crashed");
       if (otResult.status === "rejected") logger.error({ err: otResult.reason, imdbId }, "OneTouchTV: crashed");
-      if (vlResult.status === "rejected") logger.error({ err: vlResult.reason, imdbId }, "VidLink: crashed");
-      if (vlResult.status === "fulfilled" && vlResult.value === null && vlTmdbId) {
-        // fetchVidLinkStream returned null — either API was unreachable, WASM not
-        // initialised, or VidLink returned a non-200 status.  Check server logs
-        // for "VidLink API error" or "VidLink WASM warmup failed" entries.
-        logger.warn({ imdbId, vlTmdbId }, "VidLink: fetchVidLinkStream returned null — no streams. Check server logs for API/WASM errors.");
-      }
       if (mbResult.status === "rejected") logger.error({ err: mbResult.reason, imdbId }, "MovieBox: crashed");
       if (p11Result.status === "rejected") logger.error({ err: p11Result.reason, imdbId }, "111477: crashed");
       if (mwResult.status === "rejected") logger.error({ err: mwResult.reason, imdbId }, "MeowTV: crashed");
@@ -2759,7 +2566,6 @@ router.get("/stream/:type/:id.json", async (req, res) => {
       const dfV = filterVerifiedStreams((dfStreams as unknown as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx("DooFlix"));
       const ctV = filterVerifiedStreams((ctStreams as unknown as Record<string, unknown>[]).map(s => ({ ...s, _resolvedTitle: meta.title })), _mkCtx("CastleTV"));
       const otV = filterVerifiedStreams(otStreams as Record<string, unknown>[], _mkCtx("OneTouchTV"));
-      const vlV = filterVerifiedStreams((vlStreams as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx("VidLink"));
       const mbV = filterVerifiedStreams((mbStreams as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx("MovieBox"));
       const p11V = filterVerifiedStreams(p11Streams as Record<string, unknown>[], _mkCtx("111477"));
       const mwV = filterVerifiedStreams((mwStreams as unknown as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx("MeowTV"));
@@ -2774,13 +2580,13 @@ router.get("/stream/:type/:id.json", async (req, res) => {
       const nmV = filterVerifiedStreams((nmStreams as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx("NetMirror"));
       const zxcV = filterVerifiedStreams((zxcStreams as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx("ZXCStreams"));
 
-      const raw = mergeSubtitles(dedup(([...ktV, ...asV, ...raV, ...adV, ...pxpV, ...nmV, ...sfV, ...dfV, ...ctV, ...otV, ...vlV, ...mbV, ...p11V, ...mwV, ...vsV, ...mdV, ...hgV, ...vpV, ...zxcV, ...cfV, ...hmV, ...fkV, ...hdV]) as Record<string, unknown>[]));
+      const raw = mergeSubtitles(dedup(([...ktV, ...asV, ...raV, ...adV, ...pxpV, ...nmV, ...sfV, ...dfV, ...ctV, ...otV, ...mbV, ...p11V, ...mwV, ...vsV, ...mdV, ...hgV, ...vpV, ...zxcV, ...cfV, ...hmV, ...fkV, ...hdV]) as Record<string, unknown>[]));
       const combined = premiumFormat(raw, meta.title, contentType, season, episode);
       logger.info(
-        { imdbId, title: meta.title, kt: ktV.length, as: asV.length, ra: raV.length, ad: adV.length, pxp: pxpV.length, nm: nmV.length, sf: sfV.length, df: dfV.length, ct: ctV.length, ot: otV.length, vl: vlV.length, mb: mbV.length, p11: p11V.length, mw: mwV.length, vs: vsV.length, md: mdV.length, hg: hgV.length, vp: vpV.length, zxc: zxcV.length, cf: cfV.length, hm: hmV.length, fk: fkV.length, hd: hdV.length, combined: combined.length },
-        "Stremio: 23 providers aggregated",
+        { imdbId, title: meta.title, kt: ktV.length, as: asV.length, ra: raV.length, ad: adV.length, pxp: pxpV.length, nm: nmV.length, sf: sfV.length, df: dfV.length, ct: ctV.length, ot: otV.length, mb: mbV.length, p11: p11V.length, mw: mwV.length, vs: vsV.length, md: mdV.length, hg: hgV.length, vp: vpV.length, zxc: zxcV.length, cf: cfV.length, hm: hmV.length, fk: fkV.length, hd: hdV.length, combined: combined.length },
+        "Stremio: 22 providers aggregated",
       );
-      logResolve({ imdbId, step: "done", status: combined.length ? "ok" : "fail", detail: `kt=${ktV.length} as=${asV.length} ra=${raV.length} ad=${adV.length} pxp=${pxpV.length} nm=${nmV.length} sf=${sfV.length} df=${dfV.length} ct=${ctV.length} ot=${otV.length} vl=${vlV.length} mb=${mbV.length} p11=${p11V.length} mw=${mwV.length} vs=${vsV.length} md=${mdV.length} hg=${hgV.length} vp=${vpV.length} zxc=${zxcV.length} cf=${cfV.length} hm=${hmV.length} fk=${fkV.length} hd=${hdV.length} total=${combined.length}` });
+      logResolve({ imdbId, step: "done", status: combined.length ? "ok" : "fail", detail: `kt=${ktV.length} as=${asV.length} ra=${raV.length} ad=${adV.length} pxp=${pxpV.length} nm=${nmV.length} sf=${sfV.length} df=${dfV.length} ct=${ctV.length} ot=${otV.length} mb=${mbV.length} p11=${p11V.length} mw=${mwV.length} vs=${vsV.length} md=${mdV.length} hg=${hgV.length} vp=${vpV.length} zxc=${zxcV.length} cf=${cfV.length} hm=${hmV.length} fk=${fkV.length} hd=${hdV.length} total=${combined.length}` });
 
       // Cache provider subtitles for LG TV (uses /subtitles/ endpoint, not stream.subtitles[])
       const firstSubs = (combined[0]?.["subtitles"] as Array<{url:string;lang:string;id:string}> | undefined) ?? [];
@@ -2817,7 +2623,7 @@ router.get("/stream/:type/:id.json", async (req, res) => {
 
       const ep2 = getEnabledProviders(req as RequestWithConfig);
       const isSeries2 = type === "series" && season !== undefined && episode !== undefined;
-      const [ktResult2, asResult, raResult, adResult, pxpResult, sfResult, dfResult, ctResult, otResult, vlResult, mbResult, p11Result2, mwResult, vsResult, mdResult, hgResult, vpResult, cfResult, hmResult, fkResult, hdResult, nmResult, zxcResult] = await Promise.allSettled([
+      const [ktResult2, asResult, raResult, adResult, pxpResult, sfResult, dfResult, ctResult, otResult, mbResult, p11Result2, mwResult, vsResult, mdResult, hgResult, vpResult, cfResult, hmResult, fkResult, hdResult, nmResult, zxcResult] = await Promise.allSettled([
         ep2.has("kartoons") ? getKartoonsStreams(meta.title, type as "movie" | "series", season, episode, apiBase(req), meta, hasImdb ? meta.imdbId : undefined) : Promise.resolve([]),
         (ep2.has("animesalt") && hasImdb) ? getAnimeSaltStreams(meta.imdbId, type, season, episode, req) : Promise.resolve([]),
         ep2.has("rareanime") ? getRareAnimeStreamsByTitle(meta.title, type, season, episode, req, meta.aliases) : Promise.resolve([]),
@@ -2827,7 +2633,6 @@ router.get("/stream/:type/:id.json", async (req, res) => {
         (ep2.has("dooflix") && hasImdb) ? getDooflixStreams(apiBase(req), meta.imdbId, type, season, episode) : Promise.resolve([]),
         ep2.has("castletv") ? getCastleTvStreams(meta.title, meta.year ? String(meta.year) : undefined, type as "movie" | "series", season, episode, meta.originalLanguage) : Promise.resolve([]),
         ep2.has("onetouchtv") ? getOneTouchTvStreams(meta.title, type as "movie" | "series", meta.year ?? null, season ?? null, episode ?? null, hasImdb ? meta.imdbId : undefined, null) : Promise.resolve([]),
-        ep2.has("vidlink") ? fetchVidLinkStream(isSeries2 ? { type: "tv", tmdbId: numericTmdbId, season: season!, episode: episode! } : { type: "movie", tmdbId: numericTmdbId }) : Promise.resolve(null),
         ep2.has("moviebox") ? getMovieBoxStreams(meta, season, episode, req, id) : Promise.resolve([]),
         ep2.has("111477") ? get111477Streams(type as "movie" | "series", meta.title, meta.aliases[0], meta.year, season, episode) : Promise.resolve([]),
         (ep2.has("meowtv") && hasImdb) ? getMeowTvStreams(type as "movie" | "series", meta.imdbId, season, episode, apiBase(req), meta.title) : Promise.resolve([]),
@@ -2856,8 +2661,6 @@ router.get("/stream/:type/:id.json", async (req, res) => {
         ...(s.subtitles?.length ? { subtitles: s.subtitles.map((t: { url: string; lang: string }) => ({ id: t.url, url: t.url, lang: t.lang })) } : {}),
         ...(s.headers ? { behaviorHints: { proxyHeaders: { request: s.headers } } } : {}),
       }));
-      const vlResponse2 = vlResult.status === "fulfilled" ? vlResult.value as VidLinkResponse | null : null;
-      const vlStreams2 = vlResponse2?.stream?.qualities ? buildVidLinkStreams(vlResponse2.stream.qualities, apiBase(req)) : [];
       const mbStreams = mbResult.status === "fulfilled" ? mbResult.value : [];
       const p11Streams2 = p11Result2.status === "fulfilled" ? p11Result2.value : [];
       const mwStreams = mwResult.status === "fulfilled" ? mwResult.value : [];
@@ -2881,7 +2684,6 @@ router.get("/stream/:type/:id.json", async (req, res) => {
       if (dfResult.status === "rejected") logger.error({ err: dfResult.reason, tmdbId: numericTmdbId }, "DooFlix: crashed");
       if (ctResult.status === "rejected") logger.error({ err: ctResult.reason, tmdbId: numericTmdbId }, "CastleTV: crashed");
       if (otResult.status === "rejected") logger.error({ err: otResult.reason, tmdbId: numericTmdbId }, "OneTouchTV: crashed");
-      if (vlResult.status === "rejected") logger.error({ err: vlResult.reason, tmdbId: numericTmdbId }, "VidLink: crashed");
       if (mbResult.status === "rejected") logger.error({ err: mbResult.reason, tmdbId: numericTmdbId }, "MovieBox: crashed");
       if (p11Result2.status === "rejected") logger.error({ err: p11Result2.reason, tmdbId: numericTmdbId }, "111477: crashed");
       if (mwResult.status === "rejected") logger.error({ err: mwResult.reason, tmdbId: numericTmdbId }, "MeowTV: crashed");
@@ -2911,7 +2713,6 @@ router.get("/stream/:type/:id.json", async (req, res) => {
       const dfV2 = filterVerifiedStreams((dfStreams as unknown as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx2("DooFlix"));
       const ctV2 = filterVerifiedStreams((ctStreams as unknown as Record<string, unknown>[]).map(s => ({ ...s, _resolvedTitle: meta.title })), _mkCtx2("CastleTV"));
       const otV2 = filterVerifiedStreams(otStreams2 as Record<string, unknown>[], _mkCtx2("OneTouchTV"));
-      const vlV2 = filterVerifiedStreams((vlStreams2 as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx2("VidLink"));
       const mbV2 = filterVerifiedStreams((mbStreams as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx2("MovieBox"));
       const p11V2 = filterVerifiedStreams(p11Streams2 as Record<string, unknown>[], _mkCtx2("111477"));
       const mwV2 = filterVerifiedStreams((mwStreams as unknown as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx2("MeowTV"));
@@ -2926,13 +2727,13 @@ router.get("/stream/:type/:id.json", async (req, res) => {
       const nmV2 = filterVerifiedStreams((nmStreams as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx2("NetMirror"));
       const zxcV2 = filterVerifiedStreams((zxcStreams as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx2("ZXCStreams"));
 
-      const raw2 = mergeSubtitles(dedup(([...ktV2, ...asV2, ...raV2, ...adV2, ...pxpV2, ...nmV2, ...sfV2, ...dfV2, ...ctV2, ...otV2, ...vlV2, ...mbV2, ...p11V2, ...mwV2, ...vsV2, ...mdV2, ...hgV2, ...vpV2, ...zxcV2, ...cfV2, ...hmV2, ...fkV2, ...hdV2]) as Record<string, unknown>[]));
+      const raw2 = mergeSubtitles(dedup(([...ktV2, ...asV2, ...raV2, ...adV2, ...pxpV2, ...nmV2, ...sfV2, ...dfV2, ...ctV2, ...otV2, ...mbV2, ...p11V2, ...mwV2, ...vsV2, ...mdV2, ...hgV2, ...vpV2, ...zxcV2, ...cfV2, ...hmV2, ...fkV2, ...hdV2]) as Record<string, unknown>[]));
       const combined = premiumFormat(raw2, meta.title, contentType, season, episode);
       logger.info(
-        { tmdbId: numericTmdbId, title: meta.title, kt: ktV2.length, as: asV2.length, ra: raV2.length, ad: adV2.length, pxp: pxpV2.length, nm: nmV2.length, sf: sfV2.length, df: dfV2.length, ct: ctV2.length, ot: otV2.length, vl: vlV2.length, mb: mbV2.length, p11: p11V2.length, mw: mwV2.length, vs: vsV2.length, md: mdV2.length, hg: hgV2.length, vp: vpV2.length, zxc: zxcV2.length, cf: cfV2.length, hm: hmV2.length, fk: fkV2.length, hd: hdV2.length, combined: combined.length },
-        "Stremio: TMDB 23 providers aggregated",
+        { tmdbId: numericTmdbId, title: meta.title, kt: ktV2.length, as: asV2.length, ra: raV2.length, ad: adV2.length, pxp: pxpV2.length, nm: nmV2.length, sf: sfV2.length, df: dfV2.length, ct: ctV2.length, ot: otV2.length, mb: mbV2.length, p11: p11V2.length, mw: mwV2.length, vs: vsV2.length, md: mdV2.length, hg: hgV2.length, vp: vpV2.length, zxc: zxcV2.length, cf: cfV2.length, hm: hmV2.length, fk: fkV2.length, hd: hdV2.length, combined: combined.length },
+        "Stremio: TMDB 22 providers aggregated",
       );
-      logResolve({ imdbId: id, step: "done", status: combined.length ? "ok" : "fail", detail: `kt=${ktV2.length} as=${asV2.length} ra=${raV2.length} ad=${adV2.length} pxp=${pxpV2.length} nm=${nmV2.length} sf=${sfV2.length} df=${dfV2.length} ct=${ctV2.length} ot=${otV2.length} vl=${vlV2.length} mb=${mbV2.length} p11=${p11V2.length} mw=${mwV2.length} vs=${vsV2.length} md=${mdV2.length} hg=${hgV2.length} vp=${vpV2.length} zxc=${zxcV2.length} cf=${cfV2.length} hm=${hmV2.length} fk=${fkV2.length} hd=${hdV2.length} total=${combined.length}` });
+      logResolve({ imdbId: id, step: "done", status: combined.length ? "ok" : "fail", detail: `kt=${ktV2.length} as=${asV2.length} ra=${raV2.length} ad=${adV2.length} pxp=${pxpV2.length} nm=${nmV2.length} sf=${sfV2.length} df=${dfV2.length} ct=${ctV2.length} ot=${otV2.length} mb=${mbV2.length} p11=${p11V2.length} mw=${mwV2.length} vs=${vsV2.length} md=${mdV2.length} hg=${hgV2.length} vp=${vpV2.length} zxc=${zxcV2.length} cf=${cfV2.length} hm=${hmV2.length} fk=${fkV2.length} hd=${hdV2.length} total=${combined.length}` });
 
       // Cache provider subtitles for LG TV using the resolved IMDB ID
       if (meta.imdbId?.startsWith("tt")) {

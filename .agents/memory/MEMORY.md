@@ -1,6 +1,5 @@
 - [MeowTV WASM decryption](meowtv-wasm-decryption.md) — scheme changed from SHA-256 XOR to AES-CTR-encrypted WASM; re-derivation steps + critical pitfall for embedding large base64 strings.
 - [Replit path-based port routing](replit-port-routing.md) — `/api/*` routes to port 8080, not 5000; app must bind both or manifest returns 502.
-- [VidLink CDN auth & proxy strategy](vidlink-cdn-auth.md) — M3U8: return direct w/ proxyHeaders (token TTL too short to proxy); mp4: DO reverse-proxy server-side (WAF blocks client IP) but must be HMAC-signed+expiry+DNS-resolved-host-check+no-redirect-follow to avoid open-proxy/SSRF.
 - [MovieBox JWT bootstrap](moviebox-jwt-bootstrap.md) — ALL mobile API endpoints return 441 without a JWT; must bootstrap via homepage first, then cache token with 50-min TTL.
 - [DooFlix CDN strategy](dooflix-cdn-strategy.md) — 1x2.space M3U8s are public but TikTok CDN segments block cloud IPs; return those URLs direct, proxy only Cloudflare-Worker sources.
 - [Stremio provider matching design](stremio-provider-matching-design.md) — title-alias cross-linking, findBestMatchWithRetry wiring, Layer1/Layer2 verify contract, anti-patterns to avoid.
@@ -13,3 +12,4 @@
 - [AnimeDekho slow search endpoint](animedekho-slow-search.md) — popular/broad queries can take 15-25s server-side; shared 10s fetch default silently drops real results as "no match".
 - [AnimeDekho HydraX/Abyss integration](animedekho-hydrax-abyss.md) — Abyss CDN 404s if the final byte-fetch includes an Origin header (only needed on the embed page); special-cased proxy design mirrors NeoCDN.
 - [Cloudflare TLS-fingerprint block on fetch/axios](cloudflare-tls-fingerprint-block.md) — some CF hosts (gdlink.dev/gdflix.*) 403 Node fetch/axios but pass curl w/ identical headers; shell out to curl, not a header fix.
+- [Provider count is 22 after VidLink removal](provider-count-22.md) — VidLink removed (dead); mask is now 22 chars. Position 9 is now moviebox (was vidlink); all subsequent indices shifted down by 1.

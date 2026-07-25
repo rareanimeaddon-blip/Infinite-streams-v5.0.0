@@ -15,7 +15,7 @@ export interface MediaInfo {
   type: "movie" | "series";
   /** Country of origin as reported by Cinemeta, e.g. "United States", "South Korea" */
   country?: string;
-  /** TMDB / MovieDB ID — used by VidLink */
+  /** TMDB / MovieDB ID */
   moviedbId?: string;
 }
 
@@ -156,7 +156,7 @@ export async function getSeriesMeta(imdbId: string): Promise<MediaInfo | null> {
 
 /**
  * Returns the TMDB/MovieDB ID for a given IMDB ID.
- * Used by VidLink — wraps getMovieMeta/getSeriesMeta to avoid a duplicate fetch.
+ * Used by StreamFlix — wraps getMovieMeta/getSeriesMeta to avoid a duplicate fetch.
  */
 export async function getTmdbId(
   imdbId: string,
