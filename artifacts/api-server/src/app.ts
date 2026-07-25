@@ -64,8 +64,8 @@ function serveLandingPage(req: express.Request, res: express.Response) {
 
   // Provider order MUST match PROVIDER_LIST in lib/provider-config.ts
   // 0=kartoons 1=animesalt 2=rareanime 3=animedekho 4=piratexplay 5=streamflix
-  // 6=dooflix 7=castletv 8=onetouchtv 9=moviebox 10=111477 11=meowtv 12=vidsrc
-  // 13=moviesdrive 14=hdghartv 15=vaplayer 16=cinefreak 17=hindmovies 18=fourkdhub 19=hdhub4u 20=netmirror 21=zxcstreams
+  // 6=dooflix 7=castletv 8=onetouchtv 9=vidlink 10=moviebox 11=111477 12=meowtv 13=vidsrc
+  // 14=moviesdrive 15=hdghartv 16=vaplayer 17=cinefreak 18=hindmovies 19=fourkdhub 20=hdhub4u 21=netmirror 22=zxcstreams
   const providers: Array<{
     key: string;
     name: string;
@@ -164,6 +164,16 @@ function serveLandingPage(req: express.Request, res: express.Response) {
       glow: "rgba(126,200,227,0.25)",
       tags: ["Asian Dramas", "Anime", "Movies", "AES-Encrypted API"],
       desc: "Asian dramas, anime & movies via AES-256-CBC decrypted API (api3.devcorp.me) with title & region matching.",
+      category: "movies",
+    },
+    {
+      key: "vidlink",
+      name: "VidLink",
+      emoji: "🔗",
+      color: "#3b82f6",
+      glow: "rgba(59,130,246,0.25)",
+      tags: ["HLS", "MP4", "TMDB", "Movies & Series"],
+      desc: "HLS and MP4 streams from vidlink.pro via their JSON API — matched by TMDB ID for movies and series.",
       category: "movies",
     },
     {
@@ -345,7 +355,7 @@ function serveLandingPage(req: express.Request, res: express.Response) {
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<meta name="description" content="INFINITE STREAMS — 22 providers, one addon. Kartoons, AnimeSalt, RareAnime, AnimeDekho, PirateXPlay, StreamFlix, DooFlix, CastleTV, OneTouchTV, MovieBox, 111477, MeowTV, VidSrc, MoviesDrive, HDGharTV, VaPlayer, CineFreak, HindMoviez, 4KHDHub, HDHub4U, NetMirror, ZXCStreams. Install in one click."/>
+<meta name="description" content="INFINITE STREAMS — 23 providers, one addon. Kartoons, AnimeSalt, RareAnime, AnimeDekho, PirateXPlay, StreamFlix, DooFlix, CastleTV, OneTouchTV, VidLink, MovieBox, 111477, MeowTV, VidSrc, MoviesDrive, HDGharTV, VaPlayer, CineFreak, HindMoviez, 4KHDHub, HDHub4U, NetMirror, ZXCStreams. Install in one click."/>
 <title>INFINITE STREAMS — Stremio Addon</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300..900;1,14..32,300..900&display=swap" rel="stylesheet"/>
@@ -622,7 +632,7 @@ footer{border-top:1px solid var(--border);padding:52px 0;text-align:center}
     <p class="section-sub">Every provider is queried in parallel and deduplicated — you always get the best available stream.</p>
 
     <div class="cat-tabs">
-      <button class="cat-tab active" onclick="filterCat('all',this)">All (22)</button>
+      <button class="cat-tab active" onclick="filterCat('all',this)">All (23)</button>
       <button class="cat-tab" onclick="filterCat('anime',this)">🎌 Anime (4)</button>
       <button class="cat-tab" onclick="filterCat('movies',this)">🎬 Movies &amp; TV (18)</button>
     </div>
@@ -641,7 +651,7 @@ footer{border-top:1px solid var(--border);padding:52px 0;text-align:center}
     <div class="configure-box">
       <div class="configure-header">
         <span class="configure-title">Provider Selection</span>
-        <span class="sel-count" id="sel-count">22 / 22 selected</span>
+        <span class="sel-count" id="sel-count">23 / 23 selected</span>
       </div>
       <div class="configure-actions">
         <button class="cfg-action-btn" onclick="selectAll()">Select All</button>
