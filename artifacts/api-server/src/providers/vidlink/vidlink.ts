@@ -63,8 +63,8 @@ function parseHeadersParam(value: string | null): Record<string, string> {
       if (lower === "referer" || lower === "referrer") out["referer"] = String(v);
       if (lower === "origin") out["origin"] = String(v).replace(/\/$/, "");
     }
-    if (!out["referer"]) out["referer"] = "https://filmboom.top/";
-    if (!out["origin"]) out["origin"] = "https://filmboom.top";
+    if (!out["referer"]) out["referer"] = "https://vidlink.pro/";
+    if (!out["origin"]) out["origin"] = "https://vidlink.pro";
     return out;
   } catch (_) {
     return {};
