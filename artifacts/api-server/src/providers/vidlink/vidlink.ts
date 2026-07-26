@@ -85,23 +85,14 @@ function normalizeVidlinkMediaUrl(rawUrl: string): Candidate | null {
   if (!looksLikeVideo) return null;
 
   const headers = parseHeadersParam(url.searchParams.get("headers"));
-  const host = url.searchParams.get("host");
 
-  if (host) {
-    try {
-      const cleanedPath = url.pathname.replace(/^\/mp\//, "/");
-      const direct = new URL(cleanedPath, host);
-      for (const key of ["sign", "t", "Policy", "Signature", "Key-Pair-Id", "Expires"]) {
-        const value = url.searchParams.get(key);
-        if (value) direct.searchParams.set(key, value);
-      }
-      return { url: direct.href, headers };
-    } catch (_) { /* fall through */ }
-  }
-
+  // Keep the original CDN worker URL (e.g. noir.suubmon.store) intact — it is a
+  // Cloudflare-Worker mirror that is NOT rate-limited.  If we resolve the `host`
+  // param and redirect straight to bcdn.hakunaymatata.com we bypass the worker
+  // and get 429s.  Just strip our internal `headers` extraction param and leave
+  // everything else (including `host`) so the worker can still route the request.
   const direct = new URL(url.href);
   direct.searchParams.delete("headers");
-  direct.searchParams.delete("host");
   return { url: direct.href, headers };
 }
 
