@@ -50,3 +50,8 @@ externalPort = 80
 
 [nix]
 channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+FEBBOX_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3ODQ5OTM4NDcsIm5iZiI6MTc4NDk5Mzg0NywiZXhwIjoxODE2MDk3ODY3LCJkYXRhIjp7InVpZCI6MjIxODYyNCwidG9rZW4iOiIzODZlZjAxMTFhNWM4NGRhMzFlY2Y3NTIwYzNhNzM1YiJ9fQ.XGa9kccveelGw69OwCym8AtZfNE0Sq49K0VYDQfrLcc"
