@@ -13,22 +13,23 @@
  *   8 = onetouchtv
  *   9 = vidlink
  *  10 = moviebox
- *  11 = 111477
- *  12 = meowtv
- *  13 = vidsrc
- *  14 = moviesdrive
- *  15 = hdghartv
- *  16 = vaplayer
- *  17 = cinefreak
- *  18 = hindmovies
- *  19 = fourkdhub
- *  20 = hdhub4u
- *  21 = netmirror
- *  22 = zxcstreams
+ *  11 = showbox
+ *  12 = 111477
+ *  13 = meowtv
+ *  14 = vidsrc
+ *  15 = moviesdrive
+ *  16 = hdghartv
+ *  17 = vaplayer
+ *  18 = cinefreak
+ *  19 = hindmovies
+ *  20 = fourkdhub
+ *  21 = hdhub4u
+ *  22 = netmirror
+ *  23 = zxcstreams
  *
- * The config mask is a 23-character string of '0' or '1'.
+ * The config mask is a 24-character string of '0' or '1'.
  * '1' means enabled, '0' means disabled.
- * "11111111111111111111111" = all providers enabled (default).
+ * "111111111111111111111111" = all providers enabled (default).
  */
 
 export const PROVIDER_LIST = [
@@ -43,6 +44,7 @@ export const PROVIDER_LIST = [
   "onetouchtv",
   "vidlink",
   "moviebox",
+  "showbox",
   "111477",
   "meowtv",
   "vidsrc",
@@ -59,7 +61,7 @@ export const PROVIDER_LIST = [
 
 export type ProviderKey = (typeof PROVIDER_LIST)[number];
 
-export const ALL_PROVIDERS_MASK = "11111111111111111111111";
+export const ALL_PROVIDERS_MASK = "111111111111111111111111";
 
 export function parseProviderConfig(config: string): Set<ProviderKey> {
   const enabled = new Set<ProviderKey>();

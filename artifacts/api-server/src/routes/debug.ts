@@ -31,6 +31,7 @@ router.get("/debug", (_req, res) => {
     animedekho: "🇮🇳",
     dooflix: "🎬",
     moviebox: "🍿",
+    showbox: "📦",
     hindmovies: "🎞️",
     netmirror: "🌐",
   };
