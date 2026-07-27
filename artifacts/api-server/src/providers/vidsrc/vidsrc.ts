@@ -3,7 +3,9 @@ import { Parser } from "m3u8-parser";
 import { logger } from "../../lib/logger.js";
 import { createVidsrcLink } from "./vidsrc-link-store.js";
 
-const SOURCE_URL = "https://vidsrc-embed.ru/embed";
+// vidsrc-embed.ru now redirects here. Use the current host directly so the
+// embed request reaches the current player without depending on that redirect.
+const SOURCE_URL = "https://vsembed.ru/embed";
 
 const USER_AGENTS = [
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
@@ -38,7 +40,7 @@ interface QualityPlaylist {
 function parseServers(html: string): { servers: ServerEntry[]; baseDom: string } {
   const $ = cheerio.load(html);
   const iframeSrc = $("#player_iframe").attr("src") ?? $("iframe").attr("src") ?? "";
-  let baseDom = "https://cloudnestra.com";
+  let baseDom = "https://cloudorchestranova.com";
   let iframeHash: string | null = null;
 
   try {
