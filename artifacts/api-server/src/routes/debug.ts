@@ -329,15 +329,15 @@ router.get("/debug/health/data", async (req, res) => {
   const t0 = Date.now();
   const [movieR, seriesR, animeR] = await Promise.allSettled([
     axios.get<{ streams: { name?: string }[] }>(
-      `${base}/stream/movie/tt12042730.json`,  // Project Hail Mary
+      `${base}/stream/movie/tt0468569.json`,  // The Dark Knight (2008)
       { timeout: 40000 },
     ),
     axios.get<{ streams: { name?: string }[] }>(
-      `${base}/stream/series/tt0903747%3A1%3A1.json`, // Breaking Bad S01E01
+      `${base}/stream/series/tt0944947%3A1%3A1.json`, // Game of Thrones S01E01
       { timeout: 40000 },
     ),
     axios.get<{ streams: { name?: string }[] }>(
-      `${base}/stream/series/tt12853970%3A1%3A2.json`, // Shin Chan S01E02
+      `${base}/stream/series/tt0388629%3A1%3A1.json`, // One Piece S01E01
       { timeout: 40000 },
     ),
   ]);
@@ -566,20 +566,20 @@ body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,
     <div class="test-list">
       <div class="test-row">
         <span class="test-badge movie">Movie</span>
-        <span class="test-name">Project Hail Mary (2026)</span>
-        <span class="test-id">tt12042730</span>
+        <span class="test-name">The Dark Knight (2008)</span>
+        <span class="test-id">tt0468569</span>
         <span class="test-count" id="tc-movie">—</span>
       </div>
       <div class="test-row">
         <span class="test-badge series">Series</span>
-        <span class="test-name">Breaking Bad S01E01</span>
-        <span class="test-id">tt0903747:1:1</span>
+        <span class="test-name">Game of Thrones S01E01</span>
+        <span class="test-id">tt0944947:1:1</span>
         <span class="test-count" id="tc-series">—</span>
       </div>
       <div class="test-row">
         <span class="test-badge anime">Anime</span>
-        <span class="test-name">Shin Chan S01E02</span>
-        <span class="test-id">tt12853970:1:2</span>
+        <span class="test-name">One Piece S01E01</span>
+        <span class="test-id">tt0388629:1:1</span>
         <span class="test-count" id="tc-anime">—</span>
       </div>
     </div>
