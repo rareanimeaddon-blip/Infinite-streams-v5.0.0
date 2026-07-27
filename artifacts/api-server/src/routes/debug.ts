@@ -291,7 +291,9 @@ const PROVIDER_PATTERNS: Record<string, RegExp> = {
   dooflix:      /DooFlix/i,
   castletv:     /CastleTV/i,
   onetouchtv:   /OneTouchTV/i,
+  vidlink:      /VidLink/i,
   moviebox:     /MovieBox/i,
+  showbox:      /ShowBox/i,
   "111477":     /111477/i,
   meowtv:       /MeowTV/i,
   vidsrc:       /VidSrc/i,
@@ -384,8 +386,10 @@ router.get("/debug/health", (_req, res) => {
     dooflix:      { emoji: "🎥",  label: "DooFlix",       types: "Movies · Series" },
     castletv:     { emoji: "🏰",  label: "CastleTV",      types: "Movies · Series" },
     onetouchtv:   { emoji: "📺",  label: "OneTouchTV",    types: "Movies · Series" },
+    vidlink:      { emoji: "🔗",  label: "VidLink",       types: "Movies · Series" },
     moviebox:     { emoji: "🍿",  label: "MovieBox",      types: "Movies · Series" },
-    "111477":     { emoji: "📂",  label: "111477",         types: "Movies · Series" },
+    showbox:      { emoji: "📦",  label: "ShowBox",       types: "Movies · Series" },
+    "111477":     { emoji: "📂",  label: "111477",        types: "Movies · Series" },
     meowtv:       { emoji: "🐱",  label: "MeowTV",        types: "Movies · Series" },
     vidsrc:       { emoji: "📽️", label: "VidSrc",        types: "Movies · Series" },
     moviesdrive:  { emoji: "🚗",  label: "MoviesDrive",   types: "Movies · Series" },
@@ -396,6 +400,7 @@ router.get("/debug/health", (_req, res) => {
     fourkdhub:    { emoji: "🔵",  label: "4KHDHub",       types: "Movies · Series" },
     netmirror:    { emoji: "🌐",  label: "NetMirror",     types: "Movies · Series" },
     hdhub4u:      { emoji: "📡",  label: "HDHub4U",       types: "Movies · Series" },
+    zxcstreams:   { emoji: "⚡",  label: "ZXCStreams",    types: "Movies · Series" },
   };
 
   const cards = PROVIDER_LIST.map((p) => {
