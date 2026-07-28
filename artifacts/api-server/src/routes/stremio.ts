@@ -88,6 +88,7 @@ import { getZxcstreamsStreams } from "../providers/zxcstreams/zxcstreams.js";
 import { get111477Streams } from "../providers/111477/provider-111477.js";
 import { getStreams as getOneTouchTvStreams, type StreamSource as OTCStreamSource } from "../providers/onetouchtv/onetouchtv.js";
 import { getVidlinkStreams } from "../providers/vidlink/vidlink.js";
+import { registerVidlinkFreshRelay, type VidlinkRelayContext } from "../providers/vidlink/vidlink-proxy.js";
 import { getShowboxStreams } from "../providers/showbox/showbox.js";
 import { searchSubtitles } from "../lib/opensubtitles.js";
 import { BASE_PATH } from "../lib/base-path.js";
@@ -551,6 +552,19 @@ function publicOrigin(req: Request): string {
 
 function apiBase(req: Request): string {
   return `${publicOrigin(req)}${BASE_PATH}`;
+}
+
+function vidlinkStreamToStremio(
+  stream: Record<string, unknown>,
+  req: Request,
+  context: VidlinkRelayContext,
+): Record<string, unknown> {
+  const token = registerVidlinkFreshRelay(context);
+  return {
+    ...stream,
+    url: `${apiBase(req)}/vidlink/fresh/${token}`,
+    behaviorHints: { notWebReady: true },
+  };
 }
 
 function hdhub4uStreamToStremio(
@@ -2514,7 +2528,14 @@ router.get("/stream/:type/:id.json", async (req, res) => {
         ...(s.subtitles?.length ? { subtitles: s.subtitles.map((t: { url: string; lang: string }) => ({ id: t.url, url: t.url, lang: t.lang })) } : {}),
         ...(s.headers ? { behaviorHints: { proxyHeaders: { request: s.headers } } } : {}),
       }));
-      const vlStreams = vlResult.status === "fulfilled" ? vlResult.value : [];
+      const vlStreams = (vlResult.status === "fulfilled" ? vlResult.value : [])
+        .map((stream) => vidlinkStreamToStremio(stream, req, {
+          tmdbId: sfTmdbId!,
+          type,
+          season,
+          episode,
+          quality: String(stream.title ?? "").match(/\b(4K|2160p|1080p|720p|480p|360p|HD)\b/i)?.[1],
+        }));
       const mbStreams = mbResult.status === "fulfilled" ? mbResult.value : [];
       const sbStreams = sbResult.status === "fulfilled" ? sbResult.value : [];
       const p11Streams = p11Result.status === "fulfilled" ? p11Result.value : [];
@@ -2673,7 +2694,14 @@ router.get("/stream/:type/:id.json", async (req, res) => {
         ...(s.subtitles?.length ? { subtitles: s.subtitles.map((t: { url: string; lang: string }) => ({ id: t.url, url: t.url, lang: t.lang })) } : {}),
         ...(s.headers ? { behaviorHints: { proxyHeaders: { request: s.headers } } } : {}),
       }));
-      const vlStreams2 = vlResult.status === "fulfilled" ? vlResult.value : [];
+      const vlStreams2 = (vlResult.status === "fulfilled" ? vlResult.value : [])
+        .map((stream) => vidlinkStreamToStremio(stream, req, {
+          tmdbId: numericTmdbId,
+          type,
+          season,
+          episode,
+          quality: String(stream.title ?? "").match(/\b(4K|2160p|1080p|720p|480p|360p|HD)\b/i)?.[1],
+        }));
       const mbStreams = mbResult.status === "fulfilled" ? mbResult.value : [];
       const sbStreams2 = sbResult2.status === "fulfilled" ? sbResult2.value : [];
       const p11Streams2 = p11Result2.status === "fulfilled" ? p11Result2.value : [];

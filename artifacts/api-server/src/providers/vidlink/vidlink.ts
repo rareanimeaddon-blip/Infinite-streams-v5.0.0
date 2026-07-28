@@ -53,7 +53,11 @@ interface Candidate {
 }
 
 function parseHeadersParam(value: string | null): Record<string, string> {
-  if (!value) return {};
+  const defaults = {
+    referer: "https://filmboom.top/",
+    origin: "https://filmboom.top",
+  };
+  if (!value) return defaults;
   try {
     const raw: Record<string, string> = JSON.parse(value);
     const out: Record<string, string> = {};
@@ -63,11 +67,11 @@ function parseHeadersParam(value: string | null): Record<string, string> {
       if (lower === "referer" || lower === "referrer") out["referer"] = String(v);
       if (lower === "origin") out["origin"] = String(v).replace(/\/$/, "");
     }
-    if (!out["referer"]) out["referer"] = "https://vidlink.pro/";
-    if (!out["origin"]) out["origin"] = "https://vidlink.pro";
+    if (!out["referer"]) out["referer"] = defaults.referer;
+    if (!out["origin"]) out["origin"] = defaults.origin;
     return out;
   } catch (_) {
-    return {};
+    return defaults;
   }
 }
 
@@ -86,13 +90,28 @@ function normalizeVidlinkMediaUrl(rawUrl: string): Candidate | null {
 
   const headers = parseHeadersParam(url.searchParams.get("headers"));
 
-  // Keep the original CDN worker URL (e.g. noir.suubmon.store) intact — it is a
-  // Cloudflare-Worker mirror that is NOT rate-limited.  If we resolve the `host`
-  // param and redirect straight to bcdn.hakunaymatata.com we bypass the worker
-  // and get 429s.  Just strip our internal `headers` extraction param and leave
-  // everything else (including `host`) so the worker can still route the request.
+  // `noir.suubmon.store` is a Cloudflare worker front door. It can challenge
+  // playback, while VidLink also supplies the actual CDN host in `host`.
+  // Resolve that host before the play-time device redirect so the viewer's own
+  // IP fetches the media instead of the Replit server or the worker front door.
+  const embeddedHost = url.searchParams.get("host");
+  if (embeddedHost) {
+    try {
+      const direct = new URL(url.pathname.replace(/^\/mp\//, "/"), embeddedHost);
+      for (const key of ["sign", "t", "Policy", "Signature", "Key-Pair-Id", "Expires"]) {
+        const value = url.searchParams.get(key);
+        if (value) direct.searchParams.set(key, value);
+      }
+      return { url: direct.href, headers };
+    } catch (_) {
+      // Fall through to the original URL if the provider gives a malformed
+      // host parameter; the play-time resolver can still refresh the source.
+    }
+  }
+
   const direct = new URL(url.href);
   direct.searchParams.delete("headers");
+  direct.searchParams.delete("host");
   return { url: direct.href, headers };
 }
 
