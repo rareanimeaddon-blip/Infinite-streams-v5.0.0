@@ -37,10 +37,18 @@ FROM node:24-alpine AS runner
 # curl is required at runtime: gdlink.dev/gdflix.* sit behind Cloudflare
 # TLS-fingerprint bot detection that blocks Node's native fetch/axios (403)
 # but passes curl — see movies4u-proxy.ts's curlFetchText().
-RUN apk add --no-cache tini curl
+# chromium is required at runtime for the VidLink provider (Playwright-based
+# stream extraction).  Using the Alpine system binary avoids downloading
+# Playwright's bundled ~300 MB Chromium inside the image.
+RUN apk add --no-cache tini curl chromium
 
 # ── Runtime defaults (override with -e or docker-compose environment:) ────────
 ENV NODE_ENV=production
+
+# Tell Playwright to skip browser downloads and use the system Chromium instead.
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+# Point the VidLink provider at the Alpine system Chromium binary.
+ENV CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 # Port the HTTP server listens on.
 # Stremio addons conventionally use 7000.  Change with -e PORT=…
@@ -54,6 +62,12 @@ ENV BASE_PATH=/api
 ENV LOG_LEVEL=info
 
 WORKDIR /app
+
+# playwright is externalized from the esbuild bundle so it must be resolvable
+# as a node module at runtime.  --ignore-scripts prevents the postinstall hook
+# from downloading Playwright's bundled browsers; we use the system Chromium
+# installed above via CHROMIUM_EXECUTABLE_PATH instead.
+RUN npm install --ignore-scripts playwright@^1.62.0
 
 COPY --from=builder /workspace/artifacts/api-server/dist ./dist
 
