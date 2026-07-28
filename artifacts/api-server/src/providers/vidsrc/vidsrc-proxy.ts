@@ -1,21 +1,37 @@
+// VidSrc HLS proxy — fully self-contained within the vidsrc provider folder.
+//
+// Security model: only server-minted tokens (from vidsrc-link-store) can be
+// proxied. External callers cannot request arbitrary URLs — they can only use
+// tokens created by the resolver or by this proxy while rewriting M3U8 content
+// from an already-approved upstream response.
+//
+// Route prefix: /vidsrc/proxy/*  (unique to this provider — no conflicts)
+
 import { Router, type Request, type Response } from "express";
 import { Readable } from "stream";
 import { logger } from "../../lib/logger.js";
-import { resolveVidsrcLink } from "./vidsrc-link-store.js";
-import { createVidsrcLink } from "./vidsrc-link-store.js";
 import { BASE_PATH } from "../../lib/base-path.js";
+import { createVidsrcLink, resolveVidsrcLink } from "./vidsrc-link-store.js";
 
 const router = Router();
 
 const UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+  "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function setCors(res: Response): void {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Headers", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+  res.setHeader("access-control-allow-origin", "*");
+  res.setHeader("access-control-allow-headers", "*");
+  res.setHeader("access-control-allow-methods", "GET, HEAD, OPTIONS");
+  res.setHeader(
+    "access-control-expose-headers",
+    "content-length, content-range, accept-ranges, content-type",
+  );
 }
 
+// Returns the public base URL including BASE_PATH (/api) for rewriting child HLS URLs.
 function getProxyBase(req: Request): string {
   const publicUrl = process.env["PUBLIC_URL"];
   if (publicUrl) return publicUrl.replace(/\/$/, "") + (BASE_PATH ?? "");
@@ -29,14 +45,39 @@ function getProxyBase(req: Request): string {
   return `${proto}://${host}${BASE_PATH ?? ""}`;
 }
 
-// ─── M3U8 playlist proxy (rewrites all child URLs through this proxy) ─────────
+// Pick the correct Referer for each CDN so the upstream server accepts the request.
+function refererFor(url: string): string {
+  try {
+    const h = new URL(url).hostname;
+    if (h.endsWith("kucwn.com") || h.endsWith("bxncw.com"))
+      return "https://meowtv.xyz/";
+    if (h.endsWith("vidrift.in"))
+      return "https://embed.vidrift.in/";
+  } catch { /* ignore */ }
+  return "https://player.cinezo.live/";
+}
 
-router.get("/vidsrc-proxy/m3u8/:id.m3u8", async (req: Request, res: Response): Promise<void> => {
+// Mint a new server-side token for a child URL discovered while rewriting an M3U8.
+// The referer is derived from the child URL's hostname.
+function mintChildToken(absUrl: string): string {
+  return createVidsrcLink(absUrl, refererFor(absUrl));
+}
+
+// ── M3U8 playlist proxy ───────────────────────────────────────────────────────
+// Fetches the approved upstream M3U8, then rewrites every child URL (segments,
+// sub-playlists, keys) into new server-minted token URLs through this proxy.
+
+router.options("/vidsrc/proxy/m3u8/:id.m3u8", (_req, res) => {
+  setCors(res as Response);
+  res.status(204).end();
+});
+
+router.get("/vidsrc/proxy/m3u8/:id.m3u8", async (req: Request, res: Response): Promise<void> => {
   setCors(res);
 
-  const link = resolveVidsrcLink(req.params.id!);
+  const link = resolveVidsrcLink(req.params["id"]!);
   if (!link) {
-    res.status(410).send("Link expired");
+    res.status(410).send("Link expired or not found");
     return;
   }
   const { url: targetUrl, referer } = link;
@@ -44,6 +85,7 @@ router.get("/vidsrc-proxy/m3u8/:id.m3u8", async (req: Request, res: Response): P
   try {
     const upstream = await fetch(targetUrl, {
       headers: { "User-Agent": UA, Referer: referer },
+      redirect: "follow",
     });
 
     if (!upstream.ok) {
@@ -53,25 +95,24 @@ router.get("/vidsrc-proxy/m3u8/:id.m3u8", async (req: Request, res: Response): P
 
     const body = await upstream.text();
     const effectiveUrl = upstream.url || targetUrl;
-    const lastSlash = effectiveUrl.lastIndexOf("/");
-    const base = effectiveUrl.slice(0, lastSlash + 1);
-    const origin = new URL(effectiveUrl).origin;
+    const base = new URL(effectiveUrl);
     const proxyBase = getProxyBase(req);
 
     function resolveAbsolute(href: string): string {
       const t = href.trim();
-      if (t.startsWith("http://") || t.startsWith("https://")) return t;
+      if (t.startsWith("https://") || t.startsWith("http://")) return t;
       if (t.startsWith("//")) return "https:" + t;
-      if (t.startsWith("/")) return origin + t;
-      return base + t;
+      if (t.startsWith("/")) return base.origin + t;
+      return base.href.slice(0, base.href.lastIndexOf("/") + 1) + t;
     }
 
-    function makeProxyUrl(absUrl: string): string {
-      const id = createVidsrcLink(absUrl, referer);
-      const isPlaylist = absUrl.split("?")[0]?.toLowerCase().endsWith(".m3u8");
+    function proxyUrl(absUrl: string): string {
+      const token = mintChildToken(absUrl);
+      const lowerPath = (absUrl.split("?")[0] ?? "").toLowerCase();
+      const isPlaylist = lowerPath.endsWith(".m3u8") || lowerPath.endsWith(".txt");
       return isPlaylist
-        ? `${proxyBase}/vidsrc-proxy/m3u8/${id}.m3u8`
-        : `${proxyBase}/vidsrc-proxy/seg/${id}.ts`;
+        ? `${proxyBase}/vidsrc/proxy/m3u8/${token}.m3u8`
+        : `${proxyBase}/vidsrc/proxy/seg/${token}.ts`;
     }
 
     const rawLines = body.split(/\r?\n/);
@@ -84,8 +125,9 @@ router.get("/vidsrc-proxy/m3u8/:id.m3u8", async (req: Request, res: Response): P
 
       if (trimmed.startsWith("#")) {
         lastTag = trimmed;
+        // Rewrite URI="..." inside HLS tags (EXT-X-KEY, EXT-X-MAP, etc.)
         const rewrittenTag = rawLine.replace(/URI="([^"]+)"/g, (_m, uri: string) => {
-          return `URI="${makeProxyUrl(resolveAbsolute(uri))}"`;
+          return `URI="${proxyUrl(resolveAbsolute(uri))}"`;
         });
         rewritten.push(rewrittenTag);
       } else {
@@ -96,8 +138,7 @@ router.get("/vidsrc-proxy/m3u8/:id.m3u8", async (req: Request, res: Response): P
           lastTag.startsWith("#EXT-X-I-FRAME-STREAM-INF") ||
           lowerPath.endsWith(".m3u8") ||
           lowerPath.endsWith(".txt");
-
-        rewritten.push(makeProxyUrl(absUrl));
+        rewritten.push(proxyUrl(absUrl));
         if (!isPlaylist) lastTag = "";
       }
     }
@@ -111,14 +152,19 @@ router.get("/vidsrc-proxy/m3u8/:id.m3u8", async (req: Request, res: Response): P
   }
 });
 
-// ─── Binary segment proxy ─────────────────────────────────────────────────────
+// ── Binary segment proxy ──────────────────────────────────────────────────────
 
-router.get("/vidsrc-proxy/seg/:id.ts", async (req: Request, res: Response): Promise<void> => {
+router.options("/vidsrc/proxy/seg/:id.ts", (_req, res) => {
+  setCors(res as Response);
+  res.status(204).end();
+});
+
+router.get("/vidsrc/proxy/seg/:id.ts", async (req: Request, res: Response): Promise<void> => {
   setCors(res);
 
-  const link = resolveVidsrcLink(req.params.id!);
+  const link = resolveVidsrcLink(req.params["id"]!);
   if (!link) {
-    res.status(410).send("Link expired");
+    res.status(410).send("Link expired or not found");
     return;
   }
   const { url: targetUrl, referer } = link;
@@ -130,6 +176,7 @@ router.get("/vidsrc-proxy/seg/:id.ts", async (req: Request, res: Response): Prom
         Referer: referer,
         ...(req.headers.range ? { Range: req.headers.range as string } : {}),
       },
+      redirect: "follow",
     });
 
     if (!upstream.ok && upstream.status !== 206) {
@@ -137,10 +184,8 @@ router.get("/vidsrc-proxy/seg/:id.ts", async (req: Request, res: Response): Prom
       return;
     }
 
-    setCors(res);
     const ct = upstream.headers.get("content-type") ?? "";
-    const isMisleading =
-      !ct || ct.includes("text/html") || ct.includes("text/plain");
+    const isMisleading = !ct || ct.includes("text/html") || ct.includes("text/plain");
     res.setHeader("Content-Type", isMisleading ? "video/mp2t" : ct);
 
     const cr = upstream.headers.get("content-range");
@@ -149,13 +194,18 @@ router.get("/vidsrc-proxy/seg/:id.ts", async (req: Request, res: Response): Prom
 
     if (!upstream.body) { res.end(); return; }
     res.status(upstream.status);
-    const nodeStream = Readable.fromWeb(upstream.body as import("stream/web").ReadableStream);
-    nodeStream.pipe(res);
+    Readable.fromWeb(upstream.body as import("stream/web").ReadableStream).pipe(res);
   } catch (err) {
     logger.error({ err, targetUrl }, "VidSrc proxy: segment error");
     if (!res.headersSent) res.status(502).send("Proxy error");
     else res.end();
   }
+});
+
+// ── OPTIONS catch-all ─────────────────────────────────────────────────────────
+router.options("/vidsrc/proxy/*splat", (_req, res) => {
+  setCors(res as Response);
+  res.status(204).end();
 });
 
 export default router;

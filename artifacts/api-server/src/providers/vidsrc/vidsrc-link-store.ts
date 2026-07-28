@@ -1,3 +1,7 @@
+// VidSrc link store — server-side token registry for proxy URL binding.
+// Only URLs minted here (by the resolver or by the M3U8 rewriter) can be
+// proxied; external callers cannot request arbitrary URLs.
+
 import { randomUUID } from "node:crypto";
 
 interface StoredLink {
@@ -16,6 +20,7 @@ function cleanup(): void {
   }
 }
 
+/** Mint a token for (url, referer) and return the opaque token string. */
 export function createVidsrcLink(url: string, referer: string): string {
   cleanup();
   const id = randomUUID().replace(/-/g, "");
@@ -23,6 +28,7 @@ export function createVidsrcLink(url: string, referer: string): string {
   return id;
 }
 
+/** Look up a token. Returns undefined if absent or expired. */
 export function resolveVidsrcLink(id: string): { url: string; referer: string } | undefined {
   const link = links.get(id);
   if (!link) return undefined;

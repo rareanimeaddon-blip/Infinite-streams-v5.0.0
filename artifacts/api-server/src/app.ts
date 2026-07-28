@@ -223,7 +223,7 @@ function serveLandingPage(req: express.Request, res: express.Response) {
       color: "#84cc16",
       glow: "rgba(132,204,22,0.25)",
       tags: ["IMDB Matched", "M3U8", "Movies & Series"],
-      desc: "IMDB-matched HLS streams via vidsrc-embed.ru with M3U8 parsing and quality-level selection.",
+      desc: "HLS streams via flikhub.net aggregator (VidAPI + VidRift sources), proxied with CORS headers for Stremio's built-in player.",
       category: "movies",
     },
     {
