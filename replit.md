@@ -12,7 +12,7 @@ A Stremio addon (v8.8.0) that aggregates streams from 24 providers into a single
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
 - API: Express 5, esbuild (fully self-contained ESM bundle)
-- 23 stream providers: Kartoons, AnimeSalt, RareAnime, AnimeDekho, PirateXPlay, NetMirror, StreamFlix, DooFlix, CastleTV, OneTouchTV, VidLink, MovieBox, ShowBox, MeowTV, VidSrc, MoviesDrive, HDGharTV, VaPlayer, CineFreak, HindMoviez, 4KHDHub, HDHub4U, ZXCStreams
+- 24 stream providers: Kartoons, AnimeSalt, RareAnime, AnimeDekho, PirateXPlay, NetMirror, StreamFlix, DooFlix, CastleTV, OneTouchTV, VidLink, MovieBox, ShowBox, 111477, MeowTV, VidSrc, MoviesDrive, HDGharTV, VaPlayer, CineFreak, HindMoviez, 4KHDHub, HDHub4U, ZXCStreams
 - Title matching: universal shared matcher (`utils/match.ts`) used by every provider — see "Universal matching system" below
 - Health endpoint: `GET /api/healthz`
 
