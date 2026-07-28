@@ -28,9 +28,19 @@ RUN pnpm install --frozen-lockfile
 # artifacts/api-server/dist/index.mjs — no node_modules needed at runtime.
 RUN pnpm --filter @workspace/api-server run build
 
+# ── Pre-install playwright for the runtime stage ───────────────────────────────
+# playwright is in the esbuild external list so it is NOT bundled into dist/.
+# pnpm uses a virtual store with symlinks that break in a multi-stage COPY, so
+# we create a separate flat npm install here that can be safely copied as-is.
+# PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 prevents the 300 MB bundled-Chromium
+# download — the runtime image uses the Alpine system Chromium binary instead.
+RUN mkdir /playwright-pkg && \
+    cd /playwright-pkg && \
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --ignore-scripts playwright@^1.62.0
+
 
 # ─── Stage 2: Runtime ─────────────────────────────────────────────────────────
-# Minimal image — only the compiled bundle is needed.
+# Minimal image — only the compiled bundle + playwright module needed.
 FROM node:24-alpine AS runner
 
 # tini ensures proper PID-1 behaviour: forwards signals and reaps zombies.
@@ -45,9 +55,10 @@ RUN apk add --no-cache tini curl chromium
 # ── Runtime defaults (override with -e or docker-compose environment:) ────────
 ENV NODE_ENV=production
 
-# Tell Playwright to skip browser downloads and use the system Chromium instead.
+# Tell Playwright not to look for its own downloaded browsers.
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 # Point the VidLink provider at the Alpine system Chromium binary.
+# This overrides the Nix-store path hardcoded in vidlink.ts for Replit.
 ENV CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 # Port the HTTP server listens on.
@@ -63,11 +74,10 @@ ENV LOG_LEVEL=info
 
 WORKDIR /app
 
-# playwright is externalized from the esbuild bundle so it must be resolvable
-# as a node module at runtime.  --ignore-scripts prevents the postinstall hook
-# from downloading Playwright's bundled browsers; we use the system Chromium
-# installed above via CHROMIUM_EXECUTABLE_PATH instead.
-RUN npm install --ignore-scripts playwright@^1.62.0
+# Copy the flat npm playwright install from the builder.
+# Placed at /app/node_modules so Node's ESM resolver finds it when
+# resolving imports from /app/dist/index.mjs.
+COPY --from=builder /playwright-pkg/node_modules ./node_modules
 
 COPY --from=builder /workspace/artifacts/api-server/dist ./dist
 
