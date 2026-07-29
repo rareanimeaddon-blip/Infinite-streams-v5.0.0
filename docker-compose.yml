@@ -15,7 +15,13 @@ services:
       # Keep "/api" unless you put a reverse proxy in front that strips it.
       BASE_PATH: /api
       LOG_LEVEL: info
-      # Optional — uncomment and set a strong random value in production:
+      # ── Required for ShowBox / FebBox provider ────────────────────────────
+      # Copy the value of your FebBox "ui" cookie after logging in at
+      # https://www.febbox.com — set it in a .env file next to this file,
+      # or export it in your shell before running docker compose up.
+      # Without this the ShowBox provider silently returns 0 streams.
+      FEBBOX_TOKEN: "${FEBBOX_TOKEN}"
+      # Optional — set a strong random value in production:
       # SESSION_SECRET: "change-me-to-a-long-random-string"
     restart: unless-stopped
     healthcheck:
