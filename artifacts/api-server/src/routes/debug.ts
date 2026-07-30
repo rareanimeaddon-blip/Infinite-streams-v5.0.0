@@ -294,7 +294,7 @@ const PROVIDER_PATTERNS: Record<string, RegExp> = {
   vidlink:      /VidLink/i,
   moviebox:     /MovieBox/i,
   showbox:      /ShowBox/i,
-  "111477":     /111477/i,
+
   meowtv:       /MeowTV/i,
   vidsrc:       /VidSrc/i,
   moviesdrive:  /MoviesDrive/i,
@@ -329,7 +329,7 @@ router.get("/debug/health/data", async (req, res) => {
   const t0 = Date.now();
   const [movieR, seriesR, animeR] = await Promise.allSettled([
     axios.get<{ streams: { name?: string }[] }>(
-      `${base}/stream/movie/tt0468569.json`,  // The Dark Knight (2008)
+      `${base}/stream/movie/tt12042730.json`,  // Project Hail Mary (2025) — good coverage across providers
       { timeout: 40000 },
     ),
     axios.get<{ streams: { name?: string }[] }>(
@@ -389,7 +389,7 @@ router.get("/debug/health", (_req, res) => {
     vidlink:      { emoji: "🔗",  label: "VidLink",       types: "Movies · Series" },
     moviebox:     { emoji: "🍿",  label: "MovieBox",      types: "Movies · Series" },
     showbox:      { emoji: "📦",  label: "ShowBox",       types: "Movies · Series" },
-    "111477":     { emoji: "📂",  label: "111477",        types: "Movies · Series" },
+
     meowtv:       { emoji: "🐱",  label: "MeowTV",        types: "Movies · Series" },
     vidsrc:       { emoji: "📽️", label: "VidSrc",        types: "Movies · Series" },
     moviesdrive:  { emoji: "🚗",  label: "MoviesDrive",   types: "Movies · Series" },

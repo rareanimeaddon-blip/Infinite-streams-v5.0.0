@@ -12,4 +12,4 @@
 - [AnimeDekho slow search endpoint](animedekho-slow-search.md) — popular/broad queries can take 15-25s server-side; shared 10s fetch default silently drops real results as "no match".
 - [AnimeDekho HydraX/Abyss integration](animedekho-hydrax-abyss.md) — Abyss CDN 404s if the final byte-fetch includes an Origin header (only needed on the embed page); special-cased proxy design mirrors NeoCDN.
 - [Cloudflare TLS-fingerprint block on fetch/axios](cloudflare-tls-fingerprint-block.md) — some CF hosts (gdlink.dev/gdflix.*) 403 Node fetch/axios but pass curl w/ identical headers; shell out to curl, not a header fix.
-- [Provider count is 23 with VidLink re-added](provider-count-23.md) — VidLink is browser-extracted; signed CDN playback must refresh at play time and run from the viewer's device IP.
+- [Provider count is now 23](provider-count-23.md) — 111477 removed (a.111477.xyz Cloudflare JS challenge blocks Replit datacenter IPs; cache masked it until rebuilt). VidLink is browser-extracted; signed CDN playback must refresh at play time.

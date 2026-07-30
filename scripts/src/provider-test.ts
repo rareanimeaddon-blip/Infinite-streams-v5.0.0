@@ -61,22 +61,32 @@ function extractProvider(stream: StremioStream): string {
 
 function normaliseProvider(name: string): string {
   const n = name.toLowerCase();
-  if (n.includes("hdhub4u") || n.includes("📡"))          return "HDHub4U";
+  if (n.includes("hdhub4u") || n.includes("📡"))           return "HDHub4U";
   if (n.includes("4kdhub") || n.includes("4khdhub") || n.includes("🔵")) return "4KHDHub";
-  if (n.includes("hindmovie"))                             return "HindMoviez";
-  if (n.includes("hdghartv"))                              return "HDGharTV";
+  if (n.includes("hindmovie"))                              return "HindMoviez";
+  if (n.includes("hdghartv"))                               return "HDGharTV";
   if (n.includes("vaplayer"))                               return "VaPlayer";
-  if (n.includes("moviebox"))                              return "MovieBox";
-  if (n.includes("dooflix"))                               return "DooFlix";
-  if (n.includes("streamflix"))                            return "StreamFlix";
-  if (n.includes("netmirror"))                             return "NetMirror";
-  if (n.includes("animesalt") || n.includes("allinone"))  return "AnimeSalt";
-  if (n.includes("rareanime"))                             return "RareAnime";
-  if (n.includes("animedekho"))                            return "AnimeDekho";
-  if (n.includes("castletv") || n.includes("🏰"))           return "CastleTV";
+  if (n.includes("moviebox"))                               return "MovieBox";
+  if (n.includes("moviesdrive") || n.includes("🚗"))        return "MoviesDrive";
+
+  if (n.includes("showbox"))                                return "ShowBox";
+  if (n.includes("meowtv"))                                 return "MeowTV";
+  if (n.includes("vidsrc"))                                 return "VidSrc";
+  if (n.includes("vidlink") || n.includes("🔗"))            return "VidLink";
+  if (n.includes("onetouchtv") || n.includes("📺"))         return "OneTouchTV";
+  if (n.includes("piratexplay"))                            return "PirateXPlay";
+  if (n.includes("zxcstream"))                              return "ZXCStreams";
+  if (n.includes("dooflix"))                                return "DooFlix";
+  if (n.includes("streamflix"))                             return "StreamFlix";
+  if (n.includes("netmirror"))                              return "NetMirror";
+  if (n.includes("animesalt") || n.includes("allinone"))   return "AnimeSalt";
+  if (n.includes("rareanime"))                              return "RareAnime";
+  if (n.includes("animedekho"))                             return "AnimeDekho";
+  if (n.includes("castletv") || n.includes("🏰"))            return "CastleTV";
   if (n.includes("cinefreak"))                              return "CineFreak";
+  if (n.includes("kartoon"))                                return "Kartoons";
   if (n.includes("movies4u"))                               return "Movies4u";
-  if (n.includes("tik"))                                   return "TIK2";
+  if (n.includes("tik"))                                    return "TIK2";
   return name.slice(0, 28);
 }
 
@@ -138,9 +148,12 @@ function col(count: number): string {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 const ALL_PROVIDERS = [
-  "HDHub4U", "4KHDHub", "HindMoviez", "HDGharTV", "VaPlayer", "MovieBox",
-  "DooFlix", "StreamFlix", "NetMirror", "TIK2", "CastleTV", "CineFreak", "Movies4u",
-  "AnimeSalt", "RareAnime", "AnimeDekho",
+  // Order matches PROVIDER_LIST in lib/provider-config.ts
+  "Kartoons", "AnimeSalt", "RareAnime", "AnimeDekho",
+  "PirateXPlay", "StreamFlix", "DooFlix", "CastleTV", "OneTouchTV",
+  "VidLink", "MovieBox", "ShowBox", "MeowTV", "VidSrc",
+  "MoviesDrive", "HDGharTV", "VaPlayer", "CineFreak",
+  "HindMoviez", "4KHDHub", "HDHub4U", "NetMirror", "ZXCStreams",
 ];
 
 interface RowResult {

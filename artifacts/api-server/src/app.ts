@@ -64,8 +64,8 @@ function serveLandingPage(req: express.Request, res: express.Response) {
 
   // Provider order MUST match PROVIDER_LIST in lib/provider-config.ts
   // 0=kartoons 1=animesalt 2=rareanime 3=animedekho 4=piratexplay 5=streamflix
-  // 6=dooflix 7=castletv 8=onetouchtv 9=vidlink 10=moviebox 11=showbox 12=111477 13=meowtv 14=vidsrc
-  // 15=moviesdrive 16=hdghartv 17=vaplayer 18=cinefreak 19=hindmovies 20=fourkdhub 21=hdhub4u 22=netmirror 23=zxcstreams
+  // 6=dooflix 7=castletv 8=onetouchtv 9=vidlink 10=moviebox 11=showbox 12=meowtv 13=vidsrc
+  // 14=moviesdrive 15=hdghartv 16=vaplayer 17=cinefreak 18=hindmovies 19=fourkdhub 20=hdhub4u 21=netmirror 22=zxcstreams
   const providers: Array<{
     key: string;
     name: string;
@@ -194,16 +194,6 @@ function serveLandingPage(req: express.Request, res: express.Response) {
       glow: "rgba(6,214,160,0.25)",
       tags: ["Direct MP4", "FebBox", "Movies & Series", "Multi-Quality"],
       desc: "Direct MP4 streams via ShowBox/FebBox — multi-quality (480p–1080p/ORG) matched by IMDB ID. Requires FEBBOX_TOKEN.",
-      category: "movies",
-    },
-    {
-      key: "111477",
-      name: "111477",
-      emoji: "📂",
-      color: "#64748b",
-      glow: "rgba(100,116,139,0.25)",
-      tags: ["Direct MKV/MP4", "Movies & Series", "pengu.uk Proxy"],
-      desc: "Direct .mkv/.mp4 file streams from the a.111477.xyz open directory, served via the pengu.uk → dark-moon Cloudflare Worker proxy with CORS + Range support.",
       category: "movies",
     },
     {
@@ -365,7 +355,7 @@ function serveLandingPage(req: express.Request, res: express.Response) {
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<meta name="description" content="INFINITE STREAMS — 24 providers, one addon. Kartoons, AnimeSalt, RareAnime, AnimeDekho, PirateXPlay, StreamFlix, DooFlix, CastleTV, OneTouchTV, VidLink, MovieBox, ShowBox, 111477, MeowTV, VidSrc, MoviesDrive, HDGharTV, VaPlayer, CineFreak, HindMoviez, 4KHDHub, HDHub4U, NetMirror, ZXCStreams. Install in one click."/>
+<meta name="description" content="INFINITE STREAMS — 23 providers, one addon. Kartoons, AnimeSalt, RareAnime, AnimeDekho, PirateXPlay, StreamFlix, DooFlix, CastleTV, OneTouchTV, VidLink, MovieBox, ShowBox, MeowTV, VidSrc, MoviesDrive, HDGharTV, VaPlayer, CineFreak, HindMoviez, 4KHDHub, HDHub4U, NetMirror, ZXCStreams. Install in one click."/>
 <title>INFINITE STREAMS — Stremio Addon</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300..900;1,14..32,300..900&display=swap" rel="stylesheet"/>
