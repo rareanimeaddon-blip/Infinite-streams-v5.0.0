@@ -1,0 +1,27 @@
+services:
+  addon:
+    image: ghcr.io/rareanimeaddon-blip/infinite-streams-v5.0.0:latest
+    container_name: infinite-streams
+    ports:
+      # host:container — change the left side to run on a different host port.
+      - "7699:10000"
+    environment:
+      NODE_ENV: production
+      PORT: "10000"
+      # URL prefix the addon is mounted under.
+      # Keep "/api" unless you put a reverse proxy in front that strips it.
+      BASE_PATH: /api
+      LOG_LEVEL: info
+      FEBBOX_TOKEN: "${FEBBOX_TOKEN}"
+      # Optional — set a strong random value in production:
+      # SESSION_SECRET: "change-me-to-a-long-random-string"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:10000/api/healthz"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    # Uncomment to persist logs on the host:
+    # volumes:
+    #   - ./logs:/app/logs
