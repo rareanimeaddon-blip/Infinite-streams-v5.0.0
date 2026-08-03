@@ -64,8 +64,8 @@ function serveLandingPage(req: express.Request, res: express.Response) {
 
   // Provider order MUST match PROVIDER_LIST in lib/provider-config.ts
   // 0=kartoons 1=animesalt 2=rareanime 3=animedekho 4=piratexplay 5=streamflix
-  // 6=dooflix 7=castletv 8=onetouchtv 9=vidlink 10=moviebox 11=showbox 12=meowtv 13=vidsrc
-  // 14=moviesdrive 15=hdghartv 16=vaplayer 17=cinefreak 18=hindmovies 19=fourkdhub 20=hdhub4u 21=netmirror 22=zxcstreams
+  // 6=dooflix 7=castletv 8=onetouchtv 9=vidlink 10=moviebox 11=showbox 12=meowtv
+  // 13=moviesdrive 14=hdghartv 15=vaplayer 16=cinefreak 17=hindmovies 18=fourkdhub 19=hdhub4u 20=netmirror 21=zxcstreams
   const providers: Array<{
     key: string;
     name: string;
@@ -207,16 +207,6 @@ function serveLandingPage(req: express.Request, res: express.Response) {
       category: "movies",
     },
     {
-      key: "vidsrc",
-      name: "VidSrc",
-      emoji: "📽️",
-      color: "#84cc16",
-      glow: "rgba(132,204,22,0.25)",
-      tags: ["IMDB Matched", "M3U8", "Movies & Series"],
-      desc: "HLS streams via flikhub.net aggregator (VidAPI + VidRift sources), proxied with CORS headers for Stremio's built-in player.",
-      category: "movies",
-    },
-    {
       key: "moviesdrive",
       name: "MoviesDrive",
       emoji: "🚗",
@@ -355,7 +345,7 @@ function serveLandingPage(req: express.Request, res: express.Response) {
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<meta name="description" content="INFINITE STREAMS — 23 providers, one addon. Kartoons, AnimeSalt, RareAnime, AnimeDekho, PirateXPlay, StreamFlix, DooFlix, CastleTV, OneTouchTV, VidLink, MovieBox, ShowBox, MeowTV, VidSrc, MoviesDrive, HDGharTV, VaPlayer, CineFreak, HindMoviez, 4KHDHub, HDHub4U, NetMirror, ZXCStreams. Install in one click."/>
+<meta name="description" content="INFINITE STREAMS — 22 providers, one addon. Kartoons, AnimeSalt, RareAnime, AnimeDekho, PirateXPlay, StreamFlix, DooFlix, CastleTV, OneTouchTV, VidLink, MovieBox, ShowBox, MeowTV, MoviesDrive, HDGharTV, VaPlayer, CineFreak, HindMoviez, 4KHDHub, HDHub4U, NetMirror, ZXCStreams. Install in one click."/>
 <title>INFINITE STREAMS — Stremio Addon</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300..900;1,14..32,300..900&display=swap" rel="stylesheet"/>

@@ -296,7 +296,6 @@ const PROVIDER_PATTERNS: Record<string, RegExp> = {
   showbox:      /ShowBox/i,
 
   meowtv:       /MeowTV/i,
-  vidsrc:       /VidSrc/i,
   moviesdrive:  /MoviesDrive/i,
   hdghartv:     /HDGharTV/i,
   vaplayer:     /VaPlayer/i,
@@ -391,7 +390,6 @@ router.get("/debug/health", (_req, res) => {
     showbox:      { emoji: "📦",  label: "ShowBox",       types: "Movies · Series" },
 
     meowtv:       { emoji: "🐱",  label: "MeowTV",        types: "Movies · Series" },
-    vidsrc:       { emoji: "📽️", label: "VidSrc",        types: "Movies · Series" },
     moviesdrive:  { emoji: "🚗",  label: "MoviesDrive",   types: "Movies · Series" },
     hdghartv:     { emoji: "🏚️", label: "HDGharTV",      types: "Movies · Series" },
     vaplayer:     { emoji: "🎮",  label: "VaPlayer",      types: "Movies · Series" },
