@@ -65,7 +65,7 @@ function serveLandingPage(req: express.Request, res: express.Response) {
   // Provider order MUST match PROVIDER_LIST in lib/provider-config.ts
   // 0=kartoons 1=animesalt 2=rareanime 3=animedekho 4=piratexplay 5=streamflix
   // 6=dooflix 7=castletv 8=onetouchtv 9=vidlink 10=moviebox 11=showbox 12=meowtv
-  // 13=moviesdrive 14=hdghartv 15=vaplayer 16=cinefreak 17=hindmovies 18=fourkdhub 19=hdhub4u 20=netmirror 21=zxcstreams
+  // 13=moviesdrive 14=hdghartv 15=vaplayer 16=cinefreak 17=hindmovies 18=fourkdhub 19=hdhub4u 20=netmirror 21=zxcstreams 22=vidfast
   const providers: Array<{
     key: string;
     name: string;
@@ -294,6 +294,16 @@ function serveLandingPage(req: express.Request, res: express.Response) {
       glow: "rgba(249,115,22,0.25)",
       tags: ["Multi-Server", "MP4", "HLS", "Auto-Discovery"],
       desc: "Multi-server streams from zxcstream.xyz (Icarus, Berkas, Orion, Athena) with auto-discovery of the live backend domain.",
+      category: "movies",
+    },
+    {
+      key: "vidfast",
+      name: "VidFast",
+      emoji: "⚡",
+      color: "#7c3aed",
+      glow: "rgba(124,58,237,0.25)",
+      tags: ["TMDB", "Multi-Server", "4K", "HLS"],
+      desc: "Multi-server streams from vidfast.vc resolved via in-process AES decryption — Cobra, vRapid, vEdge, vFast, Bravo and more.",
       category: "movies",
     },
   ];

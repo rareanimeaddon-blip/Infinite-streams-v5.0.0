@@ -24,10 +24,11 @@
  *  19 = hdhub4u
  *  20 = netmirror
  *  21 = zxcstreams
+ *  22 = vidfast
  *
- * The config mask is a 22-character string of '0' or '1'.
+ * The config mask is a 23-character string of '0' or '1'.
  * '1' means enabled, '0' means disabled.
- * "1111111111111111111111" = all providers enabled (default).
+ * "11111111111111111111111" = all providers enabled (default).
  */
 
 export const PROVIDER_LIST = [
@@ -53,11 +54,12 @@ export const PROVIDER_LIST = [
   "hdhub4u",
   "netmirror",
   "zxcstreams",
+  "vidfast",
 ] as const;
 
 export type ProviderKey = (typeof PROVIDER_LIST)[number];
 
-export const ALL_PROVIDERS_MASK = "1111111111111111111111";
+export const ALL_PROVIDERS_MASK = "11111111111111111111111";
 
 export function parseProviderConfig(config: string): Set<ProviderKey> {
   const enabled = new Set<ProviderKey>();
