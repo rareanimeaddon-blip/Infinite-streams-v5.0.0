@@ -34,7 +34,9 @@
 
 import { findBestMatch, type MatchCandidate } from "../../utils/match.js";
 
-const MAIN_URL = "https://new4.moviesdrives.my";
+// Working domain as of 2026-08-04: new1.moviesdrive.christmas
+// Previous dead domain: new4.moviesdrives.my
+const MAIN_URL = "https://new1.moviesdrive.christmas";
 const ARCHIVE_DOMAIN = "https://mdrive.lol";
 
 const MOBILE_UAS = [
@@ -368,7 +370,7 @@ function resolveHref(href: string): string {
   return href.indexOf("http") === 0 ? href : `${MAIN_URL}${href}`;
 }
 
-// ─── Archive links (mdrive.lol) ────────────────────────────────────────────────
+// ─── Archive links (mdrive.lol) — used by series posts ────────────────────────
 
 function extractArchiveLinks(html: string, season?: number): ArchiveLink[] {
   const seasonScoped = season != null;
@@ -387,6 +389,132 @@ function extractArchiveLinks(html: string, season?: number): ArchiveLink[] {
     links.push({ url: m[1], quality, size: sizeMatch ? sizeMatch[0] : "" });
   }
   return links;
+}
+
+// ─── Search-recover links — new format used by movie posts ────────────────────
+// Movie posts now link directly to:
+//   hubcloud.foo/drive/search-recover.php?from_ac=TOKEN&q=BASE64_QUERY
+// which redirects to hubcloud.cx and exposes a JSON API:
+//   hubcloud.cx/drive/search-recover.php?api=search&q=QUERY&page=1&from_ac=TOKEN
+// returning { hits: [{ file_name, url: "hubcloud.foo/drive/ID", size }] }
+
+interface SearchRecoverLink {
+  /** hubcloud.foo/drive/search-recover.php?from_ac=TOKEN&q=BASE64 */
+  url: string;
+  quality: string;
+  size: string;
+}
+
+function extractSearchRecoverLinks(html: string): SearchRecoverLink[] {
+  const links: SearchRecoverLink[] = [];
+  const re = /href="(https?:\/\/hubcloud\.[a-z]+\/drive\/search-recover\.php\?[^"]+)"[^>]*>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) {
+    const rawUrl = m[1].replace(/&amp;/g, "&");
+    // Get preceding 400 chars (stripped of tags) for the quality label
+    const preceding = html.slice(Math.max(0, m.index - 400), m.index)
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ");
+    const qualityMatch = preceding.match(/((?:\d+p)(?:[^[\]]{0,30})?(?:\[[\d.]+\s*[MGBT]+\])?)\s*$/i);
+    const quality = qualityMatch ? parseQuality(qualityMatch[1]) : "HD";
+    const sizeMatch = preceding.match(/\[([\d.]+\s*(?:MB|GB))\]/i);
+    const size = sizeMatch ? `[${sizeMatch[1]}]` : "";
+    links.push({ url: rawUrl, quality, size });
+  }
+  return links;
+}
+
+interface SearchRecoverHit {
+  file_name?: string;
+  url?: string;
+  size?: string;
+  mimeType?: string;
+}
+
+async function callSearchRecoverApi(
+  fromAc: string,
+  query: string,
+  refererUrl: string,
+): Promise<SearchRecoverHit[]> {
+  const apiUrl = `https://hubcloud.cx/drive/search-recover.php?${new URLSearchParams({
+    api: "search",
+    q: query,
+    page: "1",
+    from_ac: fromAc,
+  }).toString()}`;
+
+  const parsed = isSafeHttpsUrl(apiUrl);
+  if (!parsed) return [];
+
+  try {
+    const res = await fetch(parsed.href, {
+      headers: {
+        "User-Agent": pickUA(),
+        "Accept": "application/json",
+        "Referer": refererUrl,
+      },
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!res.ok) return [];
+    const json = (await res.json()) as { hits?: SearchRecoverHit[] };
+    return json.hits ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * For each search-recover link, call the JSON API and return
+ * hubcloud.foo/drive/ID host jobs ready for resolveHubcloud().
+ */
+async function resolveSearchRecoverLinks(
+  srLinks: SearchRecoverLink[],
+  episode?: number,
+): Promise<{ url: string; quality: string; size: string }[]> {
+  const results: { url: string; quality: string; size: string }[] = [];
+  const seen = new Set<string>();
+
+  await Promise.allSettled(
+    srLinks.map(async (link) => {
+      let fromAc: string | null = null;
+      let queryB64: string | null = null;
+      try {
+        const u = new URL(link.url);
+        fromAc = u.searchParams.get("from_ac");
+        queryB64 = u.searchParams.get("q");
+      } catch { return; }
+      if (!fromAc) return;
+
+      let query = "";
+      try { query = queryB64 ? Buffer.from(queryB64, "base64").toString("utf-8") : ""; } catch { /* ignore */ }
+
+      const hits = await callSearchRecoverApi(fromAc, query, link.url);
+
+      for (const hit of hits) {
+        if (!hit.url) continue;
+        // Skip non-video files
+        const fn = (hit.file_name ?? "").toLowerCase();
+        if (/\.(zip|rar|7z|tar|gz|nfo|srt|ass|sub)$/i.test(fn)) continue;
+
+        // For series: filter by episode number from filename if episode is specified
+        if (episode != null) {
+          const epMatch = fn.match(/[se]\d+[ex]0*(\d+)|episode\s*0*(\d+)|ep\.?\s*0*(\d+)/i);
+          if (epMatch) {
+            const epNum = parseInt(epMatch[1] ?? epMatch[2] ?? epMatch[3]);
+            if (epNum !== episode) continue;
+          }
+        }
+
+        const url = hit.url;
+        if (!seen.has(url)) {
+          seen.add(url);
+          const size = hit.size ? `[${hit.size}]` : link.size;
+          results.push({ url, quality: link.quality, size });
+        }
+      }
+    })
+  );
+  return results;
 }
 
 // ─── HubCloud host links within an archive page ────────────────────────────────
@@ -596,14 +724,24 @@ export async function getStreams(params: GetStreamsParams): Promise<StreamLink[]
     if (!matchedHtml) return [];
   }
 
-  const archiveLinks = extractArchiveLinks(matchedHtml, isSeries ? season : undefined);
-  if (!archiveLinks.length) return [];
-
   const hostJobs: { url: string; quality: string; size: string }[] = [];
-  for (const archive of archiveLinks) {
-    const hostLinks = await extractHostLinks(archive.url, isSeries ? episode : undefined);
-    for (const hl of hostLinks) hostJobs.push({ url: hl.url, quality: archive.quality, size: archive.size });
+
+  // Path A: old mdrive.lol archive format (still used by series posts)
+  const archiveLinks = extractArchiveLinks(matchedHtml, isSeries ? season : undefined);
+  if (archiveLinks.length > 0) {
+    for (const archive of archiveLinks) {
+      const hostLinks = await extractHostLinks(archive.url, isSeries ? episode : undefined);
+      for (const hl of hostLinks) hostJobs.push({ url: hl.url, quality: archive.quality, size: archive.size });
+    }
+  } else {
+    // Path B: new search-recover format (used by movie posts as of 2026-08)
+    const srLinks = extractSearchRecoverLinks(matchedHtml);
+    if (srLinks.length > 0) {
+      const srJobs = await resolveSearchRecoverLinks(srLinks, isSeries ? episode : undefined);
+      hostJobs.push(...srJobs);
+    }
   }
+
   if (!hostJobs.length) return [];
 
   const BATCH = 4;
