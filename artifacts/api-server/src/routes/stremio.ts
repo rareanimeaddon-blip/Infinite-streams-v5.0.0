@@ -2605,10 +2605,10 @@ router.get("/stream/:type/:id.json", async (req, res) => {
       const raw = mergeSubtitles(dedup(([...ktV, ...asV, ...raV, ...adV, ...pxpV, ...nmV, ...sfV, ...dfV, ...ctV, ...otV, ...vlV, ...mbV, ...sbV, ...mwV, ...mdV, ...hgV, ...vpV, ...zxcV, ...cfV, ...hmV, ...fkV, ...hdV]) as Record<string, unknown>[]));
       const combined = premiumFormat(raw, meta.title, contentType, season, episode);
       logger.info(
-        { imdbId, title: meta.title, kt: ktV.length, as: asV.length, ra: raV.length, ad: adV.length, pxp: pxpV.length, nm: nmV.length, sf: sfV.length, df: dfV.length, ct: ctV.length, ot: otV.length, vl: vlV.length, mb: mbV.length, sb: sbV.length, mw: mwV.length, vs: vsV.length, md: mdV.length, hg: hgV.length, vp: vpV.length, zxc: zxcV.length, cf: cfV.length, hm: hmV.length, fk: fkV.length, hd: hdV.length, combined: combined.length },
-        "Stremio: 23 providers aggregated",
+        { imdbId, title: meta.title, kt: ktV.length, as: asV.length, ra: raV.length, ad: adV.length, pxp: pxpV.length, nm: nmV.length, sf: sfV.length, df: dfV.length, ct: ctV.length, ot: otV.length, vl: vlV.length, mb: mbV.length, sb: sbV.length, mw: mwV.length, md: mdV.length, hg: hgV.length, vp: vpV.length, zxc: zxcV.length, cf: cfV.length, hm: hmV.length, fk: fkV.length, hd: hdV.length, combined: combined.length },
+        "Stremio: 22 providers aggregated",
       );
-      logResolve({ imdbId, step: "done", status: combined.length ? "ok" : "fail", detail: `kt=${ktV.length} as=${asV.length} ra=${raV.length} ad=${adV.length} pxp=${pxpV.length} nm=${nmV.length} sf=${sfV.length} df=${dfV.length} ct=${ctV.length} ot=${otV.length} vl=${vlV.length} mb=${mbV.length} sb=${sbV.length} mw=${mwV.length} vs=${vsV.length} md=${mdV.length} hg=${hgV.length} vp=${vpV.length} zxc=${zxcV.length} cf=${cfV.length} hm=${hmV.length} fk=${fkV.length} hd=${hdV.length} total=${combined.length}` });
+      logResolve({ imdbId, step: "done", status: combined.length ? "ok" : "fail", detail: `kt=${ktV.length} as=${asV.length} ra=${raV.length} ad=${adV.length} pxp=${pxpV.length} nm=${nmV.length} sf=${sfV.length} df=${dfV.length} ct=${ctV.length} ot=${otV.length} vl=${vlV.length} mb=${mbV.length} sb=${sbV.length} mw=${mwV.length} md=${mdV.length} hg=${hgV.length} vp=${vpV.length} zxc=${zxcV.length} cf=${cfV.length} hm=${hmV.length} fk=${fkV.length} hd=${hdV.length} total=${combined.length}` });
 
       // Cache provider subtitles for LG TV (uses /subtitles/ endpoint, not stream.subtitles[])
       const firstSubs = (combined[0]?.["subtitles"] as Array<{url:string;lang:string;id:string}> | undefined) ?? [];
@@ -2759,10 +2759,10 @@ router.get("/stream/:type/:id.json", async (req, res) => {
       const raw2 = mergeSubtitles(dedup(([...ktV2, ...asV2, ...raV2, ...adV2, ...pxpV2, ...nmV2, ...sfV2, ...dfV2, ...ctV2, ...otV2, ...vlV2, ...mbV2, ...sbV2, ...mwV2, ...mdV2, ...hgV2, ...vpV2, ...zxcV2, ...cfV2, ...hmV2, ...fkV2, ...hdV2]) as Record<string, unknown>[]));
       const combined = premiumFormat(raw2, meta.title, contentType, season, episode);
       logger.info(
-        { tmdbId: numericTmdbId, title: meta.title, kt: ktV2.length, as: asV2.length, ra: raV2.length, ad: adV2.length, pxp: pxpV2.length, nm: nmV2.length, sf: sfV2.length, df: dfV2.length, ct: ctV2.length, ot: otV2.length, vl: vlV2.length, mb: mbV2.length, sb: sbV2.length, mw: mwV2.length, vs: vsV2.length, md: mdV2.length, hg: hgV2.length, vp: vpV2.length, zxc: zxcV2.length, cf: cfV2.length, hm: hmV2.length, fk: fkV2.length, hd: hdV2.length, combined: combined.length },
-        "Stremio: TMDB 23 providers aggregated",
+        { tmdbId: numericTmdbId, title: meta.title, kt: ktV2.length, as: asV2.length, ra: raV2.length, ad: adV2.length, pxp: pxpV2.length, nm: nmV2.length, sf: sfV2.length, df: dfV2.length, ct: ctV2.length, ot: otV2.length, vl: vlV2.length, mb: mbV2.length, sb: sbV2.length, mw: mwV2.length, md: mdV2.length, hg: hgV2.length, vp: vpV2.length, zxc: zxcV2.length, cf: cfV2.length, hm: hmV2.length, fk: fkV2.length, hd: hdV2.length, combined: combined.length },
+        "Stremio: TMDB 22 providers aggregated",
       );
-      logResolve({ imdbId: id, step: "done", status: combined.length ? "ok" : "fail", detail: `kt=${ktV2.length} as=${asV2.length} ra=${raV2.length} ad=${adV2.length} pxp=${pxpV2.length} nm=${nmV2.length} sf=${sfV2.length} df=${dfV2.length} ct=${ctV2.length} ot=${otV2.length} vl=${vlV2.length} mb=${mbV2.length} sb=${sbV2.length} mw=${mwV2.length} vs=${vsV2.length} md=${mdV2.length} hg=${hgV2.length} vp=${vpV2.length} zxc=${zxcV2.length} cf=${cfV2.length} hm=${hmV2.length} fk=${fkV2.length} hd=${hdV2.length} total=${combined.length}` });
+      logResolve({ imdbId: id, step: "done", status: combined.length ? "ok" : "fail", detail: `kt=${ktV2.length} as=${asV2.length} ra=${raV2.length} ad=${adV2.length} pxp=${pxpV2.length} nm=${nmV2.length} sf=${sfV2.length} df=${dfV2.length} ct=${ctV2.length} ot=${otV2.length} vl=${vlV2.length} mb=${mbV2.length} sb=${sbV2.length} mw=${mwV2.length} md=${mdV2.length} hg=${hgV2.length} vp=${vpV2.length} zxc=${zxcV2.length} cf=${cfV2.length} hm=${hmV2.length} fk=${fkV2.length} hd=${hdV2.length} total=${combined.length}` });
 
       // Cache provider subtitles for LG TV using the resolved IMDB ID
       if (meta.imdbId?.startsWith("tt")) {
