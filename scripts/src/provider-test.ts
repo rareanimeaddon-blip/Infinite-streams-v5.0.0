@@ -77,6 +77,7 @@ function normaliseProvider(name: string): string {
   if (n.includes("piratexplay"))                            return "PirateXPlay";
   if (n.includes("zxcstream"))                              return "ZXCStreams";
   if (n.includes("dooflix"))                                return "DooFlix";
+  if (n.includes("goated") || n.includes("🦁"))              return "Goated";
   if (n.includes("streamflix"))                             return "StreamFlix";
   if (n.includes("netmirror"))                              return "NetMirror";
   if (n.includes("animesalt") || n.includes("allinone"))   return "AnimeSalt";
@@ -150,7 +151,7 @@ function col(count: number): string {
 const ALL_PROVIDERS = [
   // Order matches PROVIDER_LIST in lib/provider-config.ts
   "Kartoons", "AnimeSalt", "RareAnime", "AnimeDekho",
-  "PirateXPlay", "StreamFlix", "DooFlix", "CastleTV", "OneTouchTV",
+  "PirateXPlay", "StreamFlix", "DooFlix", "Goated", "CastleTV", "OneTouchTV",
   "VidLink", "MovieBox", "ShowBox", "MeowTV", "VidSrc",
   "MoviesDrive", "HDGharTV", "VaPlayer", "CineFreak",
   "HindMoviez", "4KHDHub", "HDHub4U", "NetMirror", "ZXCStreams",

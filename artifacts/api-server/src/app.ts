@@ -64,8 +64,8 @@ function serveLandingPage(req: express.Request, res: express.Response) {
 
   // Provider order MUST match PROVIDER_LIST in lib/provider-config.ts
   // 0=kartoons 1=animesalt 2=rareanime 3=animedekho 4=piratexplay 5=streamflix
-  // 6=dooflix 7=castletv 8=onetouchtv 9=vidlink 10=moviebox 11=showbox 12=meowtv
-  // 13=moviesdrive 14=hdghartv 15=vaplayer 16=cinefreak 17=hindmovies 18=fourkdhub 19=hdhub4u 20=netmirror 21=zxcstreams 22=vidfast
+  // 6=dooflix 7=goated 8=castletv 9=onetouchtv 10=vidlink 11=moviebox 12=showbox 13=meowtv
+  // 14=moviesdrive 15=hdghartv 16=vaplayer 17=cinefreak 18=hindmovies 19=fourkdhub 20=hdhub4u 21=netmirror 22=zxcstreams 23=vidfast
   const providers: Array<{
     key: string;
     name: string;
@@ -144,6 +144,16 @@ function serveLandingPage(req: express.Request, res: express.Response) {
       glow: "rgba(168,85,247,0.25)",
       tags: ["HLS", "Movies", "Series", "IMDB"],
       desc: "HLS streams via xpass.top — movie and series content matched by IMDB ID with M3U8 rewriting.",
+      category: "movies",
+    },
+    {
+      key: "goated",
+      name: "Goated",
+      emoji: "🦁",
+      color: "#f97316",
+      glow: "rgba(249,115,22,0.25)",
+      tags: ["Multi-Server", "TMDB", "4K", "HLS"],
+      desc: "TMDB-matched movie and series streams from two Goated servers with proof-of-work protected playback resolution.",
       category: "movies",
     },
     {
@@ -355,7 +365,7 @@ function serveLandingPage(req: express.Request, res: express.Response) {
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<meta name="description" content="INFINITE STREAMS — 22 providers, one addon. Kartoons, AnimeSalt, RareAnime, AnimeDekho, PirateXPlay, StreamFlix, DooFlix, CastleTV, OneTouchTV, VidLink, MovieBox, ShowBox, MeowTV, MoviesDrive, HDGharTV, VaPlayer, CineFreak, HindMoviez, 4KHDHub, HDHub4U, NetMirror, ZXCStreams. Install in one click."/>
+<meta name="description" content="INFINITE STREAMS — 24 providers, one addon. Kartoons, AnimeSalt, RareAnime, AnimeDekho, PirateXPlay, StreamFlix, DooFlix, Goated, CastleTV, OneTouchTV, VidLink, MovieBox, ShowBox, MeowTV, MoviesDrive, HDGharTV, VaPlayer, CineFreak, HindMoviez, 4KHDHub, HDHub4U, NetMirror, ZXCStreams, VidFast. Install in one click."/>
 <title>INFINITE STREAMS — Stremio Addon</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300..900;1,14..32,300..900&display=swap" rel="stylesheet"/>
