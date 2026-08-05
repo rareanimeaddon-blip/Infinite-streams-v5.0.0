@@ -14,3 +14,4 @@
 - [Cloudflare TLS-fingerprint block on fetch/axios](cloudflare-tls-fingerprint-block.md) — some CF hosts (gdlink.dev/gdflix.*) 403 Node fetch/axios but pass curl w/ identical headers; shell out to curl, not a header fix.
 - [Provider count is now 23](provider-count-23.md) — 111477 removed (a.111477.xyz Cloudflare JS challenge blocks Replit datacenter IPs; cache masked it until rebuilt). VidLink is browser-extracted; signed CDN playback must refresh at play time.
 - [MoviesDrive domain and format](moviesdrive-domain-format.md) — working domain: new1.moviesdrive.christmas; movie posts use new search-recover JSON API (hubcloud.cx), series still use mdrive.lol archives.
+- [MeowTV server IDs](meowtv-server-ids.md) — old ids (lynx/v5:Hindi/v4:Hindi/v6:Hindi) now 400; current ids: tik, ipcloud, turkce (movieOnly), hindiv3.

@@ -7,12 +7,11 @@ const UA =
 const API_BASE = "https://api.meowtv.ru";
 const TMDB_KEY = "adc48d20c0956934fb224de5c40bb85d";
 
-export const MEOW_SERVERS = [
-  { id: "lynx",       label: "Lynx" },
-  { id: "ipcloud",    label: "IPCloud" },
-  { id: "v5:Hindi",   label: "Hindi" },
-  { id: "v4:Hindi",   label: "Hindi v2" },
-  { id: "v6:Hindi",   label: "Hindi v3" },
+export const MEOW_SERVERS: Array<{ id: string; label: string; movieOnly?: boolean }> = [
+  { id: "tik",     label: "TCloud" },
+  { id: "ipcloud", label: "IPCloud" },
+  { id: "turkce",  label: "Türkçe", movieOnly: true },
+  { id: "hindiv3", label: "Hindi v3" },
 ];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -458,8 +457,12 @@ export async function getMeowTvStreams(
 
   logger.info({ imdbId, tmdbId }, "MeowTV: fetching streams for all servers");
 
+  const applicableServers = MEOW_SERVERS.filter(
+    (srv) => !(srv.movieOnly && type === "series"),
+  );
+
   const results = await Promise.allSettled(
-    MEOW_SERVERS.map((srv) =>
+    applicableServers.map((srv) =>
       fetchMeowServerStream(type, tmdbId, srv.id, season, episode).then(
         (data) => ({ label: srv.label, serverId: srv.id, data }),
       ),
