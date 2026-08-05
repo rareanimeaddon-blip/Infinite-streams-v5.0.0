@@ -2628,7 +2628,7 @@ router.get("/stream/:type/:id.json", async (req, res) => {
       const zxcV = filterVerifiedStreams((zxcStreams as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx("ZXCStreams"));
       const vfV = filterVerifiedStreams((vfStreams as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx("VidFast"));
 
-      const raw = mergeSubtitles(dedup(([...ktV, ...asV, ...raV, ...adV, ...pxpV, ...nmV, ...sfV, ...dfV, ...ctV, ...otV, ...vlV, ...mbV, ...sbV, ...mwV, ...mdV, ...hgV, ...vpV, ...zxcV, ...cfV, ...hmV, ...fkV, ...hdV, ...vfV]) as Record<string, unknown>[]));
+      const raw = mergeSubtitles(dedup(([...ktV, ...asV, ...raV, ...adV, ...pxpV, ...nmV, ...sfV, ...dfV, ...ctV, ...otV, ...vlV, ...mbV, ...sbV, ...mwV, ...vfV, ...mdV, ...hgV, ...vpV, ...zxcV, ...cfV, ...hmV, ...fkV, ...hdV]) as Record<string, unknown>[]));
       const combined = premiumFormat(raw, meta.title, contentType, season, episode);
       logger.info(
         { imdbId, title: meta.title, kt: ktV.length, as: asV.length, ra: raV.length, ad: adV.length, pxp: pxpV.length, nm: nmV.length, sf: sfV.length, df: dfV.length, ct: ctV.length, ot: otV.length, vl: vlV.length, mb: mbV.length, sb: sbV.length, mw: mwV.length, md: mdV.length, hg: hgV.length, vp: vpV.length, zxc: zxcV.length, cf: cfV.length, hm: hmV.length, fk: fkV.length, hd: hdV.length, vf: vfV.length, combined: combined.length },
@@ -2786,7 +2786,7 @@ router.get("/stream/:type/:id.json", async (req, res) => {
       const zxcV2 = filterVerifiedStreams((zxcStreams as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx2("ZXCStreams"));
       const vfV2 = filterVerifiedStreams((vfStreams2 as Record<string, unknown>[]).map(s => ({ ...s, _idVerified: true })), _mkCtx2("VidFast"));
 
-      const raw2 = mergeSubtitles(dedup(([...ktV2, ...asV2, ...raV2, ...adV2, ...pxpV2, ...nmV2, ...sfV2, ...dfV2, ...ctV2, ...otV2, ...vlV2, ...mbV2, ...sbV2, ...mwV2, ...mdV2, ...hgV2, ...vpV2, ...zxcV2, ...cfV2, ...hmV2, ...fkV2, ...hdV2, ...vfV2]) as Record<string, unknown>[]));
+      const raw2 = mergeSubtitles(dedup(([...ktV2, ...asV2, ...raV2, ...adV2, ...pxpV2, ...nmV2, ...sfV2, ...dfV2, ...ctV2, ...otV2, ...vlV2, ...mbV2, ...sbV2, ...mwV2, ...vfV2, ...mdV2, ...hgV2, ...vpV2, ...zxcV2, ...cfV2, ...hmV2, ...fkV2, ...hdV2]) as Record<string, unknown>[]));
       const combined = premiumFormat(raw2, meta.title, contentType, season, episode);
       logger.info(
         { tmdbId: numericTmdbId, title: meta.title, kt: ktV2.length, as: asV2.length, ra: raV2.length, ad: adV2.length, pxp: pxpV2.length, nm: nmV2.length, sf: sfV2.length, df: dfV2.length, ct: ctV2.length, ot: otV2.length, vl: vlV2.length, mb: mbV2.length, sb: sbV2.length, mw: mwV2.length, md: mdV2.length, hg: hgV2.length, vp: vpV2.length, zxc: zxcV2.length, cf: cfV2.length, hm: hmV2.length, fk: fkV2.length, hd: hdV2.length, vf: vfV2.length, combined: combined.length },
